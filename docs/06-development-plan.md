@@ -21,11 +21,12 @@
 - [ ] Create `src/lambda/Dockerfile` (per spec in `docs/03-technical-design.md §4`)
 - [ ] Create `src/lambda/handler.py` — skeleton only: `def lambda_handler(event, context): pass`
 - [ ] Create `src/lambda/auditors/__init__.py` — empty file (Python package marker)
-- [ ] Create `src/lambda/auditors/access_analyzer.py` — skeleton: `def run(session): return []`
-- [ ] Create `src/lambda/auditors/credential_report.py` — skeleton: `def run(session, unused_days): return []`
-- [ ] Create `src/lambda/auditors/last_accessed.py` — skeleton: `def run(session, unused_days): return []`
+- [ ] Create `src/lambda/auditors/access_analyzer.py` — skeleton: `def run(session, run_id): return []`
+- [ ] Create `src/lambda/auditors/credential_report.py` — skeleton: `def run(session, run_id, unused_days): return []`
+- [ ] Create `src/lambda/auditors/last_accessed.py` — skeleton: `def run(session, run_id, unused_days): return []`
+- [ ] Create `src/lambda/auditors/policy_scanner.py` — skeleton: `def run(session, run_id): return []`
 
-**Done when:** All files exist and `python -c "from auditors import access_analyzer"` succeeds from within `src/lambda/`.
+**Done when:** All files exist and `python -c "from auditors import access_analyzer, policy_scanner"` succeeds from within `src/lambda/`.
 
 ---
 
@@ -102,7 +103,39 @@ The CSV has columns: `user`, `password_enabled`, `password_last_used`, `mfa_acti
 
 ---
 
-### Story 2.2 — Access Analyzer Auditor (Rule R01)
+### Story 2.2 — Policy Scanner Auditor (Rule R04)
+*As the auditor, I need to detect inline IAM policies that grant wildcard actions on sensitive services.*
+
+**Background:** R04 requires fetching inline policies attached directly to IAM users (not managed policies).
+The API chain is: `iam:ListUsers` → `iam:ListUserPolicies` (per user) → `iam:GetUserPolicy` (per policy name) →
+parse the JSON policy document. A finding is raised if any `Statement` has `Effect=Allow` AND
+`Action` contains `*` or a service-wildcard like `s3:*`, `iam:*`, `ec2:*`, or `lambda:*`.
+
+**Tasks:**
+- [ ] Write `tests/unit/test_policy_scanner.py` first (TDD):
+  - Test R04: user with inline policy `Action: "*", Resource: "*"` → HIGH finding
+  - Test R04: user with inline policy `Action: "s3:*"` → HIGH finding (service-level wildcard)
+  - Test R04: user with inline policy `Action: ["iam:*", "ec2:DescribeInstances"]` → HIGH finding (mixed)
+  - Test: user with inline policy `Action: "s3:GetObject"` (no wildcard) → no finding
+  - Test: user with no inline policies → empty list returned
+  - Test: multiple users, only one has a wildcard policy → only 1 finding returned
+  - Test: `Effect=Deny` with wildcard action → no finding (only Allow statements flagged)
+
+- [ ] Implement `src/lambda/auditors/policy_scanner.py`:
+  - `run(session, run_id: str) -> list[dict]`
+  - `list_users()` with pagination
+  - For each user: `list_user_policies(UserName=...)` → list of inline policy names
+  - For each policy name: `get_user_policy(UserName=..., PolicyName=...)` → policy document JSON
+  - Parse statements: flag any `Effect=Allow` where `Action` is `*` or matches `s3:*`, `iam:*`, `ec2:*`, `lambda:*`
+  - Sensitive services list: `["s3", "iam", "ec2", "lambda"]` (matches R04 spec)
+  - `resource_arn` = user ARN; `detail` = policy name + offending action(s)
+  - Return findings with `rule_id=R04`, `severity=HIGH`
+
+**Done when:** All policy scanner tests pass.
+
+---
+
+### Story 2.3 — Access Analyzer Auditor (Rule R01)
 *As the auditor, I need to detect external access findings from IAM Access Analyzer.*
 
 **Background:** `access-analyzer:ListAnalyzers` lists analyzers in the account. For each,
@@ -125,7 +158,7 @@ The CSV has columns: `user`, `password_enabled`, `password_last_used`, `mfa_acti
 
 ---
 
-### Story 2.3 — Last Accessed Auditor (Rule R07)
+### Story 2.4 — Last Accessed Auditor (Rule R07)
 *As the auditor, I need to detect IAM roles that haven't been used in 90+ days.*
 
 **Background:** `iam:ListRoles` lists all roles. For each, `iam:GenerateServiceLastAccessedDetails`
@@ -152,13 +185,13 @@ If `LastAuthenticated` is null or > 90 days ago, the role is flagged.
 
 ---
 
-### Story 2.4 — Handler (Orchestration + DynamoDB + SNS)
+### Story 2.5 — Handler (Orchestration + DynamoDB + SNS)
 *As the Lambda entry point, handler.py must read config, run all auditors, store findings, and send the email.*
 
 **Tasks:**
 - [ ] Write `tests/unit/test_handler.py` first:
   - Use conftest `dynamodb_table`, `sns_topic`, `ssm_params` fixtures
-  - Monkeypatch each auditor's `run()` to return a controlled set of findings
+  - Monkeypatch all 4 auditors' `run()` to return controlled sets of findings
   - Test: handler reads the 3 SSM params correctly
   - Test: handler writes each finding to DynamoDB (`PutItem` for each) with correct key schema
   - Test: handler publishes 1 SNS message with the correct subject format `[IAM Auditor] Weekly Report — YYYY-MM-DD`
@@ -170,7 +203,7 @@ If `LastAuthenticated` is null or > 90 days ago, the role is flagged.
   - `lambda_handler(event, context)` entry point
   - Generate `run_id = f"run_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"`
   - Read 3 SSM params via `ssm.get_parameter()`
-  - Call all 3 auditors, collect `findings = []`
+  - Call all 4 auditors, collect `findings = []`
   - Write each finding to DynamoDB with `put_item()`
   - Build SNS email body per the format in `docs/03-technical-design.md §8`
   - Publish to SNS
@@ -180,7 +213,7 @@ If `LastAuthenticated` is null or > 90 days ago, the role is flagged.
 
 ---
 
-### Story 2.5 — Coverage gate
+### Story 2.6 — Coverage gate
 *As a developer, I want to see coverage before moving on to containers.*
 
 **Tasks:**
@@ -493,6 +526,7 @@ that accepts invocation payloads.
 | Auditor: credential report | `src/lambda/auditors/credential_report.py` |
 | Auditor: access analyzer | `src/lambda/auditors/access_analyzer.py` |
 | Auditor: last accessed | `src/lambda/auditors/last_accessed.py` |
+| Auditor: policy scanner | `src/lambda/auditors/policy_scanner.py` |
 | Dockerfile | `src/lambda/Dockerfile` |
 | Test fixtures | `tests/conftest.py` |
 | Unit tests | `tests/unit/test_*.py` |
