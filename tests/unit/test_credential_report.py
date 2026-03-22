@@ -1,7 +1,7 @@
 import sys
 import os
-import base64
 import pytest
+import botocore
 from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 
@@ -56,17 +56,19 @@ def test_r02_root_access_key(boto3_session):
         "true,2020-01-01T00:00:00+00:00,N/A,N/A,N/A,"
         "false,N/A,N/A,N/A,N/A,false,N/A,false,N/A\n"
     )
-    # AWS returns the CSV base64-encoded inside the "Content" field.
-    encoded = base64.b64encode(csv_content.encode()).decode()
+    # Patch at the botocore level so the mock affects any iam client instance,
+    # including the one created inside run(). patch.object on the class doesn't
+    # work for boto3 because methods are attached to instances, not the class.
+    original_call = botocore.client.BaseClient._make_api_call
 
-    # Patch get_credential_report on the IAM client class so our auditor
-    # receives the fake CSV instead of hitting moto's empty IAM state.
-    iam_client = boto3_session.client("iam")
-    with patch.object(
-        iam_client.__class__,
-        "get_credential_report",
-        return_value={"Content": encoded, "ReportFormat": "text/csv"},
-    ):
+    def mock_api_call(self, operation_name, api_params):
+        if operation_name == "GetCredentialReport":
+            return {"Content": csv_content.encode(), "ReportFormat": "text/csv"}
+        if operation_name == "GenerateCredentialReport":
+            return {"State": "COMPLETE", "Description": "mocked"}
+        return original_call(self, operation_name, api_params)
+
+    with patch("botocore.client.BaseClient._make_api_call", mock_api_call):
         findings = credential_report.run(boto3_session, RUN_ID, UNUSED_DAYS)
 
     r02 = [f for f in findings if f["rule_id"] == "R02"]
@@ -104,14 +106,35 @@ def test_r05_key_unused(boto3_session):
 
 def test_r06_key_not_rotated(boto3_session):
     """R06: Access key not rotated in 90+ days — MEDIUM finding expected.
-    Moto creates keys with a creation date of now, but since moto does not
-    simulate time passing, we rely on the auditor treating a never-rotated
-    key (last_rotated = creation date, which may be recent) correctly.
+    Moto sets last_rotated to today for newly created keys (0 days old),
+    so R06 never triggers via the real IAM API. We patch get_credential_report
+    to inject a key that was last rotated 91 days ago.
     """
-    iam = boto3_session.client("iam")
-    iam.create_user(UserName="old-key-user")
-    iam.create_access_key(UserName="old-key-user")
-    findings = credential_report.run(boto3_session, RUN_ID, UNUSED_DAYS)
+    stale_date = days_ago(91)
+    csv_content = (
+        "user,arn,user_creation_time,password_enabled,password_last_used,"
+        "password_last_changed,password_next_rotation,mfa_active,"
+        "access_key_1_active,access_key_1_last_rotated,access_key_1_last_used_date,"
+        "access_key_1_last_used_region,access_key_1_last_used_service,"
+        "access_key_2_active,access_key_2_last_rotated,access_key_2_last_used_date,"
+        "access_key_2_last_used_region,access_key_2_last_used_service,"
+        "cert_1_active,cert_1_last_rotated,cert_2_active,cert_2_last_rotated\n"
+        f"old-key-user,arn:aws:iam::123456789012:user/old-key-user,2020-01-01T00:00:00+00:00,"
+        f"false,N/A,N/A,N/A,false,"
+        f"true,{stale_date},N/A,N/A,N/A,"
+        f"false,N/A,N/A,N/A,N/A,false,N/A,false,N/A\n"
+    )
+    original_call = botocore.client.BaseClient._make_api_call
+
+    def mock_api_call(self, operation_name, api_params):
+        if operation_name == "GetCredentialReport":
+            return {"Content": csv_content.encode(), "ReportFormat": "text/csv"}
+        if operation_name == "GenerateCredentialReport":
+            return {"State": "COMPLETE", "Description": "mocked"}
+        return original_call(self, operation_name, api_params)
+
+    with patch("botocore.client.BaseClient._make_api_call", mock_api_call):
+        findings = credential_report.run(boto3_session, RUN_ID, UNUSED_DAYS)
     r06 = [f for f in findings if f["rule_id"] == "R06"]
     assert len(r06) >= 1
     assert r06[0]["severity"] == "MEDIUM"
@@ -143,14 +166,31 @@ def test_compliant_user(boto3_session):
 
 
 def test_threshold_respected(boto3_session):
-    """A key created just now (0 days old) should not trigger R05 at a 90-day threshold.
-    This verifies the auditor respects the unused_days parameter and does not
-    flag resources that are within the acceptable window.
+    """A key last used 89 days ago should NOT trigger R05 at a 90-day threshold.
+    We mock the credential report to inject a known last_used_date of 89 days ago,
+    because moto's default (N/A) would be treated as stale by the auditor.
+    This properly verifies the unused_days threshold is respected.
     """
-    iam = boto3_session.client("iam")
-    iam.create_user(UserName="almost-stale-user")
-    iam.create_access_key(UserName="almost-stale-user")
-    # Pass the standard 90-day threshold — key is brand new so no R05 expected
-    findings = credential_report.run(boto3_session, RUN_ID, UNUSED_DAYS)
+    recent_date = days_ago(89)
+    csv_content = (
+        "user,arn,user_creation_time,password_enabled,password_last_used,"
+        "password_last_changed,password_next_rotation,mfa_active,"
+        "access_key_1_active,access_key_1_last_rotated,access_key_1_last_used_date,"
+        "access_key_1_last_used_region,access_key_1_last_used_service,"
+        "access_key_2_active,access_key_2_last_rotated,access_key_2_last_used_date,"
+        "access_key_2_last_used_region,access_key_2_last_used_service,"
+        "cert_1_active,cert_1_last_rotated,cert_2_active,cert_2_last_rotated\n"
+        f"almost-stale-user,arn:aws:iam::123456789012:user/almost-stale-user,2020-01-01T00:00:00+00:00,"
+        f"false,N/A,N/A,N/A,false,"
+        f"true,{recent_date},{recent_date},us-east-1,s3,"
+        f"false,N/A,N/A,N/A,N/A,false,N/A,false,N/A\n"
+    )
+    iam_client = boto3_session.client("iam")
+    with patch.object(
+        iam_client.__class__,
+        "get_credential_report",
+        return_value={"Content": csv_content.encode(), "ReportFormat": "text/csv"},
+    ):
+        findings = credential_report.run(boto3_session, RUN_ID, UNUSED_DAYS)
     r05 = [f for f in findings if f["rule_id"] == "R05"]
     assert len(r05) == 0
