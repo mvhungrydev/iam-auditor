@@ -1,23 +1,43 @@
-import sys
 import os
+import sys
 import pytest
 import botocore
 from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 
-# Add src/lambda to Python's module search path so we can import
-# the auditors package without installing it as a package.
-# __file__ is this test file; we go up two levels to reach the project root,
-# then down into src/lambda where handler.py and auditors/ live.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../src/lambda"))
+# Add src/lambda to the module search path so we can import the auditors package.
+# Works in both pytest (uses __file__) and the VS Code Interactive Window (uses cwd).
+try:
+    sys.path.insert(
+        0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../src/lambda")
+    )
+except NameError:
+    sys.path.insert(0, os.path.join(os.getcwd(), "src/lambda"))
 
-# Import the auditor module we are testing.
-# At this point it only returns [] — tests will fail until we implement it.
 from auditors import credential_report
 
 
 # A fixed run ID used across all tests to simulate a Lambda execution.
 RUN_ID = "run_test_123"
+
+
+def mock_credential_report(csv_content):
+    """Return a patch context manager that injects a fake credential report CSV.
+    Used by tests that need to control the CSV data (e.g. root account, stale dates)
+    since moto cannot simulate those scenarios via the real IAM API.
+    Patches at the botocore level so it affects any IAM client instance,
+    including the one created inside run().
+    """
+    original_call = botocore.client.BaseClient._make_api_call
+
+    def mock_api_call(self, operation_name, api_params):
+        if operation_name == "GetCredentialReport":
+            return {"Content": csv_content.encode(), "ReportFormat": "text/csv"}
+        if operation_name == "GenerateCredentialReport":
+            return {"State": "COMPLETE", "Description": "mocked"}
+        return original_call(self, operation_name, api_params)
+
+    return patch("botocore.client.BaseClient._make_api_call", mock_api_call)
 
 # The number of days before an unused/unrotated resource is considered stale.
 # Matches the default threshold defined in SSM and the detection rules doc.
@@ -56,19 +76,7 @@ def test_r02_root_access_key(boto3_session):
         "true,2020-01-01T00:00:00+00:00,N/A,N/A,N/A,"
         "false,N/A,N/A,N/A,N/A,false,N/A,false,N/A\n"
     )
-    # Patch at the botocore level so the mock affects any iam client instance,
-    # including the one created inside run(). patch.object on the class doesn't
-    # work for boto3 because methods are attached to instances, not the class.
-    original_call = botocore.client.BaseClient._make_api_call
-
-    def mock_api_call(self, operation_name, api_params):
-        if operation_name == "GetCredentialReport":
-            return {"Content": csv_content.encode(), "ReportFormat": "text/csv"}
-        if operation_name == "GenerateCredentialReport":
-            return {"State": "COMPLETE", "Description": "mocked"}
-        return original_call(self, operation_name, api_params)
-
-    with patch("botocore.client.BaseClient._make_api_call", mock_api_call):
+    with mock_credential_report(csv_content):
         findings = credential_report.run(boto3_session, RUN_ID, UNUSED_DAYS)
 
     r02 = [f for f in findings if f["rule_id"] == "R02"]
@@ -124,16 +132,7 @@ def test_r06_key_not_rotated(boto3_session):
         f"true,{stale_date},N/A,N/A,N/A,"
         f"false,N/A,N/A,N/A,N/A,false,N/A,false,N/A\n"
     )
-    original_call = botocore.client.BaseClient._make_api_call
-
-    def mock_api_call(self, operation_name, api_params):
-        if operation_name == "GetCredentialReport":
-            return {"Content": csv_content.encode(), "ReportFormat": "text/csv"}
-        if operation_name == "GenerateCredentialReport":
-            return {"State": "COMPLETE", "Description": "mocked"}
-        return original_call(self, operation_name, api_params)
-
-    with patch("botocore.client.BaseClient._make_api_call", mock_api_call):
+    with mock_credential_report(csv_content):
         findings = credential_report.run(boto3_session, RUN_ID, UNUSED_DAYS)
     r06 = [f for f in findings if f["rule_id"] == "R06"]
     assert len(r06) >= 1
@@ -185,12 +184,7 @@ def test_threshold_respected(boto3_session):
         f"true,{recent_date},{recent_date},us-east-1,s3,"
         f"false,N/A,N/A,N/A,N/A,false,N/A,false,N/A\n"
     )
-    iam_client = boto3_session.client("iam")
-    with patch.object(
-        iam_client.__class__,
-        "get_credential_report",
-        return_value={"Content": csv_content.encode(), "ReportFormat": "text/csv"},
-    ):
+    with mock_credential_report(csv_content):
         findings = credential_report.run(boto3_session, RUN_ID, UNUSED_DAYS)
     r05 = [f for f in findings if f["rule_id"] == "R05"]
     assert len(r05) == 0

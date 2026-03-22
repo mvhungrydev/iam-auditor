@@ -1,0 +1,3 @@
+Run tests from dev laptop after activating virutal environment
+pytest tests/unit/test_credential_report.py -v
+
