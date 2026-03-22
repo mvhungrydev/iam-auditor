@@ -302,16 +302,32 @@ Lambda execution role policy — only the minimum actions required.
 
 ## 7. Detection Rules
 
-| Rule ID | Data Source         | Condition                                                    | Severity |
-| ------- | ------------------- | ------------------------------------------------------------ | -------- |
-| R01     | IAM Access Analyzer | Any active external access finding                           | CRITICAL |
-| R02     | Credential Report   | Root account access key exists                               | CRITICAL |
-| R03     | Credential Report   | User has no MFA enabled                                      | HIGH     |
-| R04     | IAM Policy Scan     | Inline policy contains `*` action on S3, IAM, EC2, or Lambda | HIGH     |
-| R05     | Credential Report   | Access key not used in 90+ days                              | MEDIUM   |
-| R06     | Credential Report   | Access key not rotated in 90+ days                           | MEDIUM   |
-| R07     | Last Accessed API   | Role has no service activity in 90+ days                     | MEDIUM   |
-| R08     | Credential Report   | User password not used in 90+ days                           | MEDIUM   |
+| Rule ID | Data Source         | Condition                                                     | Severity | Remediation                                                                 |
+| ------- | ------------------- | ------------------------------------------------------------- | -------- | --------------------------------------------------------------------------- |
+| R01     | IAM Access Analyzer | Any active external access finding                            | CRITICAL | Remove the external principal from the resource policy                      |
+| R02     | Credential Report   | Root account access key exists                                | CRITICAL | Delete the root access key immediately; use IAM users or roles instead      |
+| R03     | Credential Report   | User has no MFA enabled                                       | HIGH     | Enable MFA on the user or remove console access                             |
+| R04     | IAM Policy Scan     | Inline policy contains `*` action on S3, IAM, EC2, or Lambda | HIGH     | Replace wildcard actions with least-privilege permissions                   |
+| R05     | Credential Report   | Access key not used in 90+ days                               | MEDIUM   | Deactivate or delete the unused access key                                  |
+| R06     | Credential Report   | Access key not rotated in 90+ days                            | MEDIUM   | Rotate the key: create a new key, update applications, delete the old key   |
+| R07     | Last Accessed API   | Role has no service activity in 90+ days                      | MEDIUM   | Delete or deactivate the unused role                                        |
+| R08     | Credential Report   | User password not used in 90+ days                            | MEDIUM   | Remove the console login profile or deactivate the user                     |
+
+### Why these severities?
+
+**CRITICAL** — Immediate, unacceptable risk requiring same-day action:
+- **R01**: A resource policy is actively granting access to an external party right now. Your data may already be exposed.
+- **R02**: The root account has unlimited power and cannot be restricted by IAM policies. A leaked root key means total account compromise.
+
+**HIGH** — Significant risk that increases attack surface:
+- **R03**: A user without MFA can be taken over with just a stolen password. Console access without MFA is a single point of failure.
+- **R04**: Wildcard actions on sensitive services (S3, IAM, EC2, Lambda) violate least-privilege and can allow privilege escalation.
+
+**MEDIUM** — Hygiene issues that increase blast radius if another control fails:
+- **R05**: An access key that has never been used is unnecessary credential exposure. If leaked, there is no usage baseline to detect abuse.
+- **R06**: Long-lived keys that are never rotated give attackers an extended window if the key is ever compromised.
+- **R07**: Unused roles are dead attack surface. If their trust policy is misconfigured, they can be assumed without being noticed.
+- **R08**: A stale console password suggests an abandoned account — a forgotten user is often one with forgotten permissions.
 
 ---
 
