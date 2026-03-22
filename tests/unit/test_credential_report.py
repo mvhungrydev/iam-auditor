@@ -1,6 +1,8 @@
 import sys
 import os
+import base64
 import pytest
+from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 
 # Add src/lambda to Python's module search path so we can import
@@ -33,12 +35,40 @@ def days_ago(n):
 
 def test_r02_root_access_key(boto3_session):
     """R02: Root account has an active access key — CRITICAL finding expected.
-    The credential report always includes a row for the root account.
-    If root has an active access key, that is a critical security risk.
+    Moto does not simulate the root account (it only knows about IAM users you
+    explicitly create). In real AWS, the root account always appears in the
+    credential report as '<root_account>' — a special reserved name that cannot
+    be created via the IAM API. So we patch get_credential_report to return a
+    hand-crafted CSV with a root row that has access_key_1_active = true.
     """
-    iam = boto3_session.client("iam")
-    iam.create_access_key(UserName="root")
-    findings = credential_report.run(boto3_session, RUN_ID, UNUSED_DAYS)
+    # Build a minimal credential report CSV with a root account entry.
+    # The column order matches the real AWS credential report format.
+    csv_content = (
+        "user,arn,user_creation_time,password_enabled,password_last_used,"
+        "password_last_changed,password_next_rotation,mfa_active,"
+        "access_key_1_active,access_key_1_last_rotated,access_key_1_last_used_date,"
+        "access_key_1_last_used_region,access_key_1_last_used_service,"
+        "access_key_2_active,access_key_2_last_rotated,access_key_2_last_used_date,"
+        "access_key_2_last_used_region,access_key_2_last_used_service,"
+        "cert_1_active,cert_1_last_rotated,cert_2_active,cert_2_last_rotated\n"
+        "<root_account>,arn:aws:iam::123456789012:root,2020-01-01T00:00:00+00:00,"
+        "not_supported,N/A,not_supported,not_applicable,false,"
+        "true,2020-01-01T00:00:00+00:00,N/A,N/A,N/A,"
+        "false,N/A,N/A,N/A,N/A,false,N/A,false,N/A\n"
+    )
+    # AWS returns the CSV base64-encoded inside the "Content" field.
+    encoded = base64.b64encode(csv_content.encode()).decode()
+
+    # Patch get_credential_report on the IAM client class so our auditor
+    # receives the fake CSV instead of hitting moto's empty IAM state.
+    iam_client = boto3_session.client("iam")
+    with patch.object(
+        iam_client.__class__,
+        "get_credential_report",
+        return_value={"Content": encoded, "ReportFormat": "text/csv"},
+    ):
+        findings = credential_report.run(boto3_session, RUN_ID, UNUSED_DAYS)
+
     r02 = [f for f in findings if f["rule_id"] == "R02"]
     assert len(r02) == 1
     assert r02[0]["severity"] == "CRITICAL"
