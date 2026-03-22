@@ -22,13 +22,13 @@ _As a developer, I need the source file structure in place so I can write and im
 
 **Tasks:**
 
-- [ ] Create `src/lambda/Dockerfile` (per spec in `docs/03-technical-design.md §4`)
-- [ ] Create `src/lambda/handler.py` — skeleton only: `def lambda_handler(event, context): pass`
-- [ ] Create `src/lambda/auditors/__init__.py` — empty file (Python package marker)
-- [ ] Create `src/lambda/auditors/access_analyzer.py` — skeleton: `def run(session, run_id): return []`
-- [ ] Create `src/lambda/auditors/credential_report.py` — skeleton: `def run(session, run_id, unused_days): return []`
-- [ ] Create `src/lambda/auditors/last_accessed.py` — skeleton: `def run(session, run_id, unused_days): return []`
-- [ ] Create `src/lambda/auditors/policy_scanner.py` — skeleton: `def run(session, run_id): return []`
+- [x] Create `src/lambda/Dockerfile` (per spec in `docs/03-technical-design.md §4`)
+- [x] Create `src/lambda/handler.py` — skeleton only: `def lambda_handler(event, context): pass`
+- [x] Create `src/lambda/auditors/__init__.py` — empty file (Python package marker)
+- [x] Create `src/lambda/auditors/access_analyzer.py` — skeleton: `def run(session, run_id): return []`
+- [x] Create `src/lambda/auditors/credential_report.py` — skeleton: `def run(session, run_id, unused_days): return []`
+- [x] Create `src/lambda/auditors/last_accessed.py` — skeleton: `def run(session, run_id, unused_days): return []`
+- [x] Create `src/lambda/auditors/policy_scanner.py` — skeleton: `def run(session, run_id): return []`
 
 **Done when:** All files exist and `python -c "from auditors import access_analyzer, policy_scanner"` succeeds from within `src/lambda/`.
 
@@ -40,15 +40,15 @@ _As a developer, I need moto-based fixtures so tests never touch real AWS._
 
 **Tasks:**
 
-- [ ] Create `pytest.ini` at project root:
+- [x] Create `pytest.ini` at project root:
   ```ini
   [pytest]
   testpaths = tests
   addopts = -v --tb=short
   ```
-- [ ] Create `tests/__init__.py` — empty
-- [ ] Create `tests/unit/__init__.py` — empty
-- [ ] Create `tests/conftest.py` with:
+- [x] Create `tests/__init__.py` — empty
+- [x] Create `tests/unit/__init__.py` — empty
+- [x] Create `tests/conftest.py` with:
   - Fake AWS env vars (`AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) — required by moto even though no real calls are made
   - `@pytest.fixture` `aws_credentials` — sets fake env vars
   - `@pytest.fixture` `boto3_session` — returns a real boto3 Session pointed at moto
@@ -58,9 +58,6 @@ _As a developer, I need moto-based fixtures so tests never touch real AWS._
   - All fixtures decorated with `@mock_aws` from moto
 
 **Done when:** `pytest tests/` runs and collects 0 errors (no tests yet, but no import errors either).
-cd iam-auditor
-source .venv/bin/activate
-pytest tests/
 
 ---
 
@@ -70,10 +67,10 @@ _As a developer, I need `setup.sh` to run clean so any team member can onboard i
 
 **Tasks:**
 
-- [ ] Run `bash setup.sh` from a clean shell — verify no errors
-- [ ] Run `docker build -t iam-auditor-lambda src/lambda/` — verify image builds
-- [ ] Confirm `pytest tests/ -q` exits 0 (no collected tests yet is fine)
-- [ ] Add a `.gitignore` entry for `.venv/` if not already present
+- [x] Run `bash setup.sh` from a clean shell — verify no errors
+- [x] Run `docker build -t iam-auditor-lambda src/lambda/` — verify image builds
+- [x] Confirm `pytest tests/ -q` exits 0 (no collected tests yet is fine)
+- [x] Add a `.gitignore` entry for `.venv/` if not already present
 
 **Done when:** `setup.sh` passes, `docker build` succeeds, no errors.
 
@@ -97,7 +94,7 @@ The CSV has columns: `user`, `password_enabled`, `password_last_used`, `mfa_acti
 
 **Tasks:**
 
-- [ ] Write `tests/unit/test_credential_report.py` first (TDD):
+- [x] Write `tests/unit/test_credential_report.py` first (TDD):
   - Test R02: root row with `access_key_1_active=true` → CRITICAL finding `{"rule_id": "R02", "severity": "CRITICAL", ...}`
   - Test R03: user with `mfa_active=false` and `password_enabled=true` → HIGH finding
   - Test R05: user with `access_key_1_last_used_date` > 90 days ago → MEDIUM finding
@@ -106,14 +103,15 @@ The CSV has columns: `user`, `password_enabled`, `password_last_used`, `mfa_acti
   - Test: user with everything compliant → empty list returned
   - Test: `unused_days` threshold is respected (89 days = no finding, 91 days = finding)
 
-- [ ] Implement `src/lambda/auditors/credential_report.py`:
+- [x] Implement `src/lambda/auditors/credential_report.py`:
   - `run(session, run_id: str, unused_days: int) -> list[dict]`
   - Call `generate_credential_report()`, poll until status is `COMPLETE`, then `get_credential_report()`
-  - Decode the base64 CSV content, parse with `csv.DictReader`
+  - Decode the bytes CSV content with `.decode("utf-8")`, parse with `csv.DictReader`
   - Apply rules, return list of finding dicts (schema: `run_id`, `finding_id`, `rule_id`, `severity`, `resource_arn`, `detail`, `data_source`, `created_at`, `expires_at`)
   - `run_id` is passed in as a parameter (not generated inside the auditor — handler owns it)
+  - Note: R02 and R06 tests use `botocore.client.BaseClient._make_api_call` patching — `patch.object` on the class does not affect new boto3 client instances created inside `run()`
 
-**Done when:** All credential report tests pass.
+**Done when:** All credential report tests pass. ✅ (7/7 green)
 
 ---
 
