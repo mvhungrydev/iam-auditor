@@ -65,66 +65,95 @@ from moto import mock_aws
 mock = mock_aws()
 mock.start()
 
-
-
 session = boto3.Session(region_name="us-east-1")
 iam = session.client("iam")
 
+# --- R04: user with wildcard inline policy ---
 iam.create_user(UserName="wildcard-user")
 policy_doc = json.dumps({
     "Version": "2012-10-17",
     "Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}],
 })
-
 iam.put_user_policy(
     UserName="wildcard-user",
     PolicyName="DangerousPolicy",
     PolicyDocument=policy_doc,
 )
-
 response = iam.list_user_policies(UserName="wildcard-user")
 print(response["PolicyNames"])
-
 policy = iam.get_user_policy(UserName="wildcard-user", PolicyName="DangerousPolicy")
 print(policy["PolicyDocument"])
 
-
-
 statements = policy["PolicyDocument"]["Statement"]
-
 for statement in statements:
     effect = statement.get("Effect")
     actions = statement.get("Action", [])
-
-    # Action can be a string or a list — normalize to a list
     if isinstance(actions, str):
         actions = [actions]
-
     print(f"Effect: {effect}")
     print(f"Actions: {actions}")
-
     if effect == "Allow":
         for action in actions:
             if action == "*" or (len(action.split(":")) == 2 and action.split(":")[1] == "*"):
                 print(f"R04 triggered by action: {action}")
 
+# --- R09: role with wildcard inline policy ---
+trust_policy = json.dumps({
+    "Version": "2012-10-17",
+    "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+})
+iam.create_role(RoleName="wildcard-role", AssumeRolePolicyDocument=trust_policy)
+role_policy_doc = json.dumps({
+    "Version": "2012-10-17",
+    "Statement": [{"Effect": "Allow", "Action": "iam:*", "Resource": "*"}],
+})
+iam.put_role_policy(RoleName="wildcard-role", PolicyName="DangerousRolePolicy", PolicyDocument=role_policy_doc)
+response = iam.list_role_policies(RoleName="wildcard-role")
+print(response["PolicyNames"])
+role_policy = iam.get_role_policy(RoleName="wildcard-role", PolicyName="DangerousRolePolicy")
+print(role_policy["PolicyDocument"])
+
+# --- R10: role with wildcard customer-managed attached policy ---
+# create_policy creates a standalone managed policy with its own ARN.
+# attach_role_policy links it to the role — list_attached_role_policies will then return it.
+managed_policy_doc = json.dumps({
+    "Version": "2012-10-17",
+    "Statement": [{"Effect": "Allow", "Action": "s3:*", "Resource": "*"}],
+})
+managed_response = iam.create_policy(PolicyName="DangerousManagedPolicy", PolicyDocument=managed_policy_doc)
+managed_policy_arn = managed_response["Policy"]["Arn"]
+print(f"Created managed policy ARN: {managed_policy_arn}")
+iam.attach_role_policy(RoleName="wildcard-role", PolicyArn=managed_policy_arn)
+attached = iam.list_attached_role_policies(RoleName="wildcard-role")
+print(attached["AttachedPolicies"])
+# Fetch the document via versioned API
+default_version = iam.get_policy(PolicyArn=managed_policy_arn)["Policy"]["DefaultVersionId"]
+doc = iam.get_policy_version(PolicyArn=managed_policy_arn, VersionId=default_version)["PolicyVersion"]["Document"]
+print(doc)
+
+# Run the full auditor — should return R04, R09, and R10 findings
 run_id = "run_test_123"
-run(session, run_id)
+findings = run(session, run_id)
+for f in findings:
+    print(f["rule_id"], f["resource_arn"], f["detail"])
 """
 # %%
 
 
 def run(session, run_id):
-    """Scan all IAM users for inline policies with wildcard actions — returns R04 findings.
+    """Scan IAM users and roles for inline and attached wildcard policies.
 
-    R04 is triggered when an inline policy has:
+    Returns:
+      R04 — user inline policy with wildcard action (HIGH)
+      R09 — role inline policy with wildcard action (HIGH)
+      R10 — customer-managed policy attached to role with wildcard action (HIGH)
+
+    A finding is raised when a policy has:
       Effect = Allow  AND  Action contains "*" or a service wildcard like "s3:*"
 
     Only sensitive services are flagged (s3, iam, ec2, lambda).
     Effect=Deny wildcards are NOT flagged — Deny restricts access, it doesn't grant it.
-
-    Inline policies are embedded directly on a user (not shared managed policies).
-    They are easy to overlook because they don't appear in the IAM managed policy list.
+    AWS-managed policies (ARN starts with arn:aws:iam::aws:) are skipped for R10.
     """
     iam = session.client("iam")
     findings = []
@@ -187,6 +216,120 @@ def run(session, run_id):
                         )
                         # One finding per policy is enough — stop checking statements
                         # for this policy once we've found a violation.
+                        break
+
+    # R09: Same wildcard detection applied to IAM roles.
+    # A role with iam:* or s3:* carries identical privilege escalation risk as a user with R04.
+    # API chain mirrors users: list_roles → list_role_policies → get_role_policy.
+    paginator = iam.get_paginator("list_roles")
+    for page in paginator.paginate():
+        for role in page["Roles"]:
+            rolename = role["RoleName"]
+            role_arn = role["Arn"]
+            print(f"Scanning role: {rolename}")
+
+            policy_names = iam.list_role_policies(RoleName=rolename)["PolicyNames"]
+            if not policy_names:
+                print(f"  No inline policies found for role '{rolename}'")
+                continue
+
+            for policy_name in policy_names:
+                policy_doc = iam.get_role_policy(
+                    RoleName=rolename, PolicyName=policy_name
+                )["PolicyDocument"]
+                print(f"Scanning inline policy: {policy_name} for role '{rolename}'")
+
+                for statement in policy_doc.get("Statement", []):
+                    if statement.get("Effect") != "Allow":
+                        continue
+
+                    actions = statement.get("Action", [])
+                    if isinstance(actions, str):
+                        actions = [actions]
+
+                    offending = [a for a in actions if _is_wildcard_action(a)]
+                    print(f"Finding: {offending}")
+
+                    if offending:
+                        findings.append(
+                            _finding(
+                                run_id,
+                                "R09",
+                                "HIGH",
+                                role_arn,
+                                f"Role '{rolename}' inline policy '{policy_name}' "
+                                f"grants wildcard action(s): {', '.join(offending)}",
+                            )
+                        )
+                        break
+
+    # R10: Customer-managed policies attached to roles with wildcard actions.
+    # Unlike inline policies (R09), managed policies are standalone IAM objects
+    # with their own ARN and version history. They require a different API chain
+    # to retrieve the active policy document.
+    #
+    # AWS-managed ARNs:       arn:aws:iam::aws:policy/AdministratorAccess
+    # Customer-managed ARNs:  arn:aws:iam::123456789012:policy/MyPolicy
+    # We skip AWS-managed — flagging AdministratorAccess on every admin role is noise.
+    paginator = iam.get_paginator("list_roles")
+    for page in paginator.paginate():
+        for role in page["Roles"]:
+            rolename = role["RoleName"]
+            role_arn = role["Arn"]
+            print(f"R10: Scanning attached managed policies for role: {rolename}")
+
+            # list_attached_role_policies returns managed policies only — not inline.
+            # Each entry has PolicyName and PolicyArn.
+            attached = iam.list_attached_role_policies(RoleName=rolename)[
+                "AttachedPolicies"
+            ]
+            if not attached:
+                continue
+
+            for policy_meta in attached:
+                policy_arn = policy_meta["PolicyArn"]
+                policy_name = policy_meta["PolicyName"]
+
+                # Skip AWS-managed policies — controlled by AWS, not the customer.
+                if policy_arn.startswith("arn:aws:iam::aws:"):
+                    print(f"  Skipping AWS-managed policy: {policy_arn}")
+                    continue
+
+                # Managed policies are versioned. DefaultVersionId is the active version.
+                default_version_id = iam.get_policy(PolicyArn=policy_arn)[
+                    "Policy"
+                ]["DefaultVersionId"]
+
+                # get_policy_version returns the full document — same structure as inline.
+                policy_doc = iam.get_policy_version(
+                    PolicyArn=policy_arn, VersionId=default_version_id
+                )["PolicyVersion"]["Document"]
+
+                print(f"  Scanning: {policy_name} (v{default_version_id}) on role '{rolename}'")
+
+                for statement in policy_doc.get("Statement", []):
+                    if statement.get("Effect") != "Allow":
+                        continue
+
+                    actions = statement.get("Action", [])
+                    if isinstance(actions, str):
+                        actions = [actions]
+
+                    offending = [a for a in actions if _is_wildcard_action(a)]
+                    print(f"  Finding: {offending}")
+
+                    if offending:
+                        findings.append(
+                            _finding(
+                                run_id,
+                                "R10",
+                                "HIGH",
+                                role_arn,
+                                f"Role '{rolename}' has customer-managed policy "
+                                f"'{policy_name}' ({policy_arn}) attached, which "
+                                f"grants wildcard action(s): {', '.join(offending)}",
+                            )
+                        )
                         break
 
     return findings

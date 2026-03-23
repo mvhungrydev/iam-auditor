@@ -230,17 +230,23 @@ Lambda execution role policy — only the minimum actions required.
       "_comment": "AWS does not support resource-level permissions for these actions"
     },
     {
-      "Sid": "IAMReadScopedToUsersAndRoles",
+      "Sid": "IAMReadScopedToUsersRolesAndPolicies",
       "Effect": "Allow",
       "Action": [
         "iam:ListUserPolicies",
         "iam:GetUserPolicy",
         "iam:ListAttachedUserPolicies",
-        "iam:GenerateServiceLastAccessedDetails"
+        "iam:GenerateServiceLastAccessedDetails",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion"
       ],
       "Resource": [
         "arn:aws:iam::*:user/*",
-        "arn:aws:iam::*:role/*"
+        "arn:aws:iam::*:role/*",
+        "arn:aws:iam::*:policy/*"
       ]
     },
     {
@@ -312,6 +318,8 @@ Lambda execution role policy — only the minimum actions required.
 | R06     | Credential Report   | Access key not rotated in 90+ days                            | MEDIUM   | Rotate the key: create a new key, update applications, delete the old key   |
 | R07     | Last Accessed API   | Role has no service activity in 90+ days                      | MEDIUM   | Delete or deactivate the unused role                                        |
 | R08     | Credential Report   | User password not used in 90+ days                            | MEDIUM   | Remove the console login profile or deactivate the user                     |
+| R09     | IAM Policy Scan     | Role inline policy contains `*` action on S3, IAM, EC2, or Lambda | HIGH | Replace wildcard actions with least-privilege permissions                   |
+| R10     | IAM Policy Scan     | Customer-managed policy attached to role contains `*` action on S3, IAM, EC2, or Lambda | HIGH | Remove the wildcard or detach the policy and replace with a scoped one      |
 
 ### Why these severities?
 
@@ -322,6 +330,8 @@ Lambda execution role policy — only the minimum actions required.
 **HIGH** — Significant risk that increases attack surface:
 - **R03**: A user without MFA can be taken over with just a stolen password. Console access without MFA is a single point of failure.
 - **R04**: Wildcard actions on sensitive services (S3, IAM, EC2, Lambda) violate least-privilege and can allow privilege escalation.
+- **R09**: Same risk as R04 but on roles. A role with `iam:*` can be assumed by any trusted principal and used to escalate privileges across the account.
+- **R10**: Same risk as R09 but via an attached managed policy. The effective permissions are identical whether the wildcard is inline or managed. Managed policies are often overlooked because they are separate IAM objects, not visually embedded on the role.
 
 **MEDIUM** — Hygiene issues that increase blast radius if another control fails:
 - **R05**: An access key that has never been used is unnecessary credential exposure. If leaked, there is no usage baseline to detect abuse.
