@@ -5,6 +5,7 @@ import botocore
 from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
 
+# %%
 # Add src/lambda to the module search path so we can import the auditors package.
 # Works in both pytest (uses __file__) and the VS Code Interactive Window (uses cwd).
 try:
@@ -19,6 +20,30 @@ from auditors import credential_report
 
 # A fixed run ID used across all tests to simulate a Lambda execution.
 RUN_ID = "run_test_123"
+# The number of days before an unused/unrotated resource is considered stale.
+# Matches the default threshold defined in SSM and the detection rules doc.
+UNUSED_DAYS = 90
+
+
+def days_ago(n):
+    """Returns an ISO 8601 timestamp for n days ago in UTC.
+    Used to construct dates for moto IAM resources when needed.
+    """
+    return (datetime.now(timezone.utc) - timedelta(days=n)).strftime(
+        "%Y-%m-%dT%H:%M:%S+00:00"
+    )
+
+
+""""
+# What boto3_session fixture does — replicate this in the Interactive Window
+import boto3
+from moto import mock_aws
+
+mock = mock_aws()
+mock.start()
+boto3_session = boto3.Session(region_name="us-east-1")
+
+"""
 
 
 def mock_credential_report(csv_content):
@@ -38,19 +63,6 @@ def mock_credential_report(csv_content):
         return original_call(self, operation_name, api_params)
 
     return patch("botocore.client.BaseClient._make_api_call", mock_api_call)
-
-# The number of days before an unused/unrotated resource is considered stale.
-# Matches the default threshold defined in SSM and the detection rules doc.
-UNUSED_DAYS = 90
-
-
-def days_ago(n):
-    """Returns an ISO 8601 timestamp for n days ago in UTC.
-    Used to construct dates for moto IAM resources when needed.
-    """
-    return (datetime.now(timezone.utc) - timedelta(days=n)).strftime(
-        "%Y-%m-%dT%H:%M:%S+00:00"
-    )
 
 
 def test_r02_root_access_key(boto3_session):
