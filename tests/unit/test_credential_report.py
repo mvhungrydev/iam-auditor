@@ -34,7 +34,7 @@ def days_ago(n):
     )
 
 
-""""
+"""
 # What boto3_session fixture does — replicate this in the Interactive Window
 import boto3
 from moto import mock_aws
