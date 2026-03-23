@@ -228,3 +228,19 @@ def test_deny_wildcard_not_flagged(boto3_session):
     put_inline_policy(iam, "deny-wildcard-user", "DenyPolicy", "Deny", "*")
     findings = policy_scanner.run(boto3_session, RUN_ID)
     assert findings == []
+
+
+def test_two_wildcard_policies_same_user(boto3_session):
+    """R04: A user with two separate inline policies both containing wildcards
+    should produce 2 findings — one per policy.
+
+    Verifies the policy loop doesn't stop after the first violation.
+    The break only exits the statement loop inside one policy, not the policy loop.
+    """
+    iam = boto3_session.client("iam")
+    iam.create_user(UserName="two-policy-user")
+    put_inline_policy(iam, "two-policy-user", "S3WildcardPolicy", "Allow", "s3:*")
+    put_inline_policy(iam, "two-policy-user", "IAMWildcardPolicy", "Allow", "iam:*")
+    findings = policy_scanner.run(boto3_session, RUN_ID)
+    r04 = [f for f in findings if f["rule_id"] == "R04"]
+    assert len(r04) == 2

@@ -1,5 +1,7 @@
 Run tests from dev laptop after activating virutal environment
 source /iam-auditor/.venv/bin/activate <-- change to the location of the .venv
 pytest tests/unit/test_credential_report.py -v
+
+source .venv/bin/activate && pytest tests/unit/test_policy_scanner.py -v --tb=short 2>&1
 pytest tests/unit/test_policy_scanner.py -v
 
