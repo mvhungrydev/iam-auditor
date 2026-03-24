@@ -115,7 +115,7 @@ The CSV has columns: `user`, `password_enabled`, `password_last_used`, `mfa_acti
 
 ---
 
-### Story 2.2 — Policy Scanner Auditor (Rule R04)
+### Story 2.2 — Policy Scanner Auditor (Rules R04, R09, R10)
 
 _As the auditor, I need to detect inline IAM policies that grant wildcard actions on sensitive services._
 
@@ -124,9 +124,14 @@ The API chain is: `iam:ListUsers` → `iam:ListUserPolicies` (per user) → `iam
 parse the JSON policy document. A finding is raised if any `Statement` has `Effect=Allow` AND
 `Action` contains `*` or a service-wildcard like `s3:*`, `iam:*`, `ec2:*`, or `lambda:*`.
 
+R09 mirrors R04 but targets IAM roles via: `iam:ListRoles` → `iam:ListRolePolicies` → `iam:GetRolePolicy`.
+
+R10 detects customer-managed policies attached to roles with wildcard actions via:
+`iam:ListRoles` → `iam:ListAttachedRolePolicies` → skip `arn:aws:iam::aws:` → `iam:GetPolicy` (DefaultVersionId) → `iam:GetPolicyVersion`.
+
 **Tasks:**
 
-- [ ] Write `tests/unit/test_policy_scanner.py` first (TDD):
+- [x] Write `tests/unit/test_policy_scanner.py` first (TDD):
   - Test R04: user with inline policy `Action: "*", Resource: "*"` → HIGH finding
   - Test R04: user with inline policy `Action: "s3:*"` → HIGH finding (service-level wildcard)
   - Test R04: user with inline policy `Action: ["iam:*", "ec2:DescribeInstances"]` → HIGH finding (mixed)
@@ -134,18 +139,32 @@ parse the JSON policy document. A finding is raised if any `Statement` has `Effe
   - Test: user with no inline policies → empty list returned
   - Test: multiple users, only one has a wildcard policy → only 1 finding returned
   - Test: `Effect=Deny` with wildcard action → no finding (only Allow statements flagged)
+  - Test R09: role with inline policy `Action: "*"` → HIGH finding
+  - Test R09: role with inline policy `Action: "s3:*"` → HIGH finding
+  - Test R09: role with inline policy `Action: ["iam:*", "ec2:DescribeInstances"]` → HIGH finding (mixed)
+  - Test: role with inline policy `Action: "s3:GetObject"` → no finding
+  - Test: role with no inline policies → no finding
+  - Test: multiple roles, only one flagged → only 1 R09 finding
+  - Test: `Effect=Deny` with wildcard on role → no finding
+  - Test R10: role with customer-managed policy `Action: "*"` attached → HIGH finding
+  - Test R10: role with customer-managed policy `Action: "s3:*"` attached → HIGH finding
+  - Test R10: role with customer-managed policy `Action: ["iam:*", "ec2:DescribeInstances"]` → HIGH finding
+  - Test: role with scoped customer-managed policy → no finding
+  - Test: role with no attached managed policies → no finding
+  - Test: multiple roles, only one flagged → only 1 R10 finding
+  - Test: AWS-managed policy (ARN `arn:aws:iam::aws:`) attached to role → no R10 finding (skipped)
+  - Test: role with two wildcard managed policies → 2 R10 findings
 
-- [ ] Implement `src/lambda/auditors/policy_scanner.py`:
+- [x] Implement `src/lambda/auditors/policy_scanner.py`:
   - `run(session, run_id: str) -> list[dict]`
-  - `list_users()` with pagination
-  - For each user: `list_user_policies(UserName=...)` → list of inline policy names
-  - For each policy name: `get_user_policy(UserName=..., PolicyName=...)` → policy document JSON
-  - Parse statements: flag any `Effect=Allow` where `Action` is `*` or matches `s3:*`, `iam:*`, `ec2:*`, `lambda:*`
-  - Sensitive services list: `["s3", "iam", "ec2", "lambda"]` (matches R04 spec)
-  - `resource_arn` = user ARN; `detail` = policy name + offending action(s)
-  - Return findings with `rule_id=R04`, `severity=HIGH`
+  - R04: paginate `list_users()` → `list_user_policies` → `get_user_policy` per user; rule_id=R04, severity=HIGH, resource_arn=user ARN
+  - R09: paginate `list_roles()` → `list_role_policies` → `get_role_policy` per role; rule_id=R09, severity=HIGH, resource_arn=role ARN
+  - R10: paginate `list_roles()` → `list_attached_role_policies` → skip `arn:aws:iam::aws:` ARNs → `get_policy` for DefaultVersionId → `get_policy_version`; rule_id=R10, severity=HIGH
+  - `_is_wildcard_action(action)` helper: flags `"*"` and `"<service>:*"` for SENSITIVE_SERVICES
+  - SENSITIVE_SERVICES = `{"s3", "iam", "ec2", "lambda"}`
+  - `detail` = resource name + policy name + offending action(s)
 
-**Done when:** All policy scanner tests pass.
+**Done when:** All policy scanner tests pass. ✅ (R04/R09/R10 — 25 tests green)
 
 ---
 
