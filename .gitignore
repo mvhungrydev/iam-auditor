@@ -24,7 +24,7 @@ build/
 *.tfstate
 *.tfstate.backup
 terraform.tfplan
-
+CLAUDE.md
 # NOTE: .terraform.lock.hcl is intentionally NOT ignored.
 # It is the dependency lock file and SHOULD be committed,
 # same as package-lock.json in Node projects.
