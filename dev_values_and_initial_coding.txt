@@ -5,3 +5,4 @@ pytest tests/unit/test_credential_report.py -v
 source .venv/bin/activate && pytest tests/unit/test_policy_scanner.py -v --tb=short 2>&1
 pytest tests/unit/test_policy_scanner.py -v
 
+pytest tests/unit/test_access_analyzer.py -v
