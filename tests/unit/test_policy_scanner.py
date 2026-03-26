@@ -24,60 +24,91 @@ RUN_ID = "run_test_123"
 
 # %%
 """
-local development:
-import os, sys, json, uuid
-from datetime import datetime, timezone, timedelta
+# %% Setup — run once
+import os
+import sys
+import json
+import pytest
+import botocore
+from unittest.mock import patch
+import os, sys, json, boto3, botocore
+from moto import mock_aws
+from unittest.mock import patch
 
-sys.path.insert(0, os.path.join(os.getcwd(), "src/lambda"))
+def find_project_root(marker="pytest.ini"):
+    path = os.getcwd()
+    while path != os.path.dirname(path):
+        if os.path.exists(os.path.join(path, marker)):
+            return path
+        path = os.path.dirname(path)
+    raise FileNotFoundError(f"Could not find project root containing {marker}")
+sys.path.insert(0, os.path.join(find_project_root(), "src/lambda"))
+
+from auditors import policy_scanner
+
+RUN_ID = "run_test_123"
 os.environ["AWS_ACCESS_KEY_ID"] = "testing"
 os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
 os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-import boto3
-from moto import mock_aws
-mock = mock_aws()
-mock.start()
 
-session = boto3.Session(region_name="us-east-1")
-iam = session.client("iam")
+def run_test(test_fn):
+    with mock_aws():
+        session = boto3.Session(region_name="us-east-1")
+        test_fn(session)
+        print(f"PASS: {test_fn.__name__}")
 
-iam.create_user(UserName="wildcard-user")
-policy_doc = json.dumps({
-    "Version": "2012-10-17",
-    "Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}],
-})
+# %% R04
+run_test(test_r04_full_wildcard)
+# %%
+run_test(test_r04_service_wildcard)
+# %%
+run_test(test_r04_mixed_actions)
+# %%
+run_test(test_no_finding_specific_action)
+# %%
+run_test(test_no_finding_no_policies)
+# %%
+run_test(test_only_flagged_user_returned)
+# %%
+run_test(test_deny_wildcard_not_flagged)
+# %%
+run_test(test_two_wildcard_policies_same_user)
 
-iam.put_user_policy(
-    UserName="wildcard-user",
-    PolicyName="DangerousPolicy",
-    PolicyDocument=policy_doc,
-)
+# %% R09
+run_test(test_r09_full_wildcard)
+# %%
+run_test(test_r09_service_wildcard)
+# %%
+run_test(test_r09_mixed_actions)
+# %%
+run_test(test_r09_no_finding_specific_action)
+# %%
+run_test(test_r09_no_finding_no_policies)
+# %%
+run_test(test_r09_only_flagged_role_returned)
+# %%
+run_test(test_r09_deny_wildcard_not_flagged)
+# %%
+run_test(test_r09_two_wildcard_policies_same_role)
 
-response = iam.list_user_policies(UserName="wildcard-user")
-print(response["PolicyNames"])
+# %% R10
+run_test(test_r10_full_wildcard)
+# %%
+run_test(test_r10_service_wildcard)
+# %%
+run_test(test_r10_mixed_actions)
+# %%
+run_test(test_r10_no_finding_specific_action)
+# %%
+run_test(test_r10_no_finding_no_attached_policies)
+# %%
+run_test(test_r10_only_flagged_role_returned)
+# %%
+run_test(test_r10_aws_managed_policy_skipped)
+# %%
+run_test(test_r10_two_wildcard_policies_same_role)
 
-policy = iam.get_user_policy(UserName="wildcard-user", PolicyName="DangerousPolicy")
-print(policy["PolicyDocument"])
-
-
-statements = policy["PolicyDocument"]["Statement"]
-
-for statement in statements:
-    effect = statement.get("Effect")
-    actions = statement.get("Action", [])
-    
-    # Action can be a string or a list — normalize to a list
-    if isinstance(actions, str):
-        actions = [actions]
-    
-    print(f"Effect: {effect}")
-    print(f"Actions: {actions}")
-    
-    if effect == "Allow":
-        for action in actions:
-            if action == "*" or (len(action.split(":")) == 2 and action.split(":")[1] == "*"):
-                print(f"R04 triggered by action: {action}")
-
-
+# %%
 """
 # %%
 
@@ -254,14 +285,18 @@ def test_two_wildcard_policies_same_user(boto3_session):
 # A role with iam:* or s3:* carries identical privilege escalation risk.
 # =============================================================================
 
-TRUST_POLICY = json.dumps({
-    "Version": "2012-10-17",
-    "Statement": [{
-        "Effect": "Allow",
-        "Principal": {"Service": "lambda.amazonaws.com"},
-        "Action": "sts:AssumeRole"
-    }]
-})
+TRUST_POLICY = json.dumps(
+    {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "lambda.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+            }
+        ],
+    }
+)
 
 
 def put_role_inline_policy(iam, rolename, policy_name, effect, action):
@@ -279,11 +314,15 @@ def put_role_inline_policy(iam, rolename, policy_name, effect, action):
         action:      a string ("s3:*") or list (["iam:*", "ec2:Describe*"]) of IAM actions
     """
     iam.create_role(RoleName=rolename, AssumeRolePolicyDocument=TRUST_POLICY)
-    policy_doc = json.dumps({
-        "Version": "2012-10-17",
-        "Statement": [{"Effect": effect, "Action": action, "Resource": "*"}],
-    })
-    iam.put_role_policy(RoleName=rolename, PolicyName=policy_name, PolicyDocument=policy_doc)
+    policy_doc = json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [{"Effect": effect, "Action": action, "Resource": "*"}],
+        }
+    )
+    iam.put_role_policy(
+        RoleName=rolename, PolicyName=policy_name, PolicyDocument=policy_doc
+    )
 
 
 def test_r09_full_wildcard(boto3_session):
@@ -322,7 +361,11 @@ def test_r09_mixed_actions(boto3_session):
     """
     iam = boto3_session.client("iam")
     put_role_inline_policy(
-        iam, "mixed-action-role", "MixedPolicy", "Allow", ["iam:*", "ec2:DescribeInstances"]
+        iam,
+        "mixed-action-role",
+        "MixedPolicy",
+        "Allow",
+        ["iam:*", "ec2:DescribeInstances"],
     )
     findings = policy_scanner.run(boto3_session, RUN_ID)
     r09 = [f for f in findings if f["rule_id"] == "R09"]
@@ -394,16 +437,26 @@ def test_r09_two_wildcard_policies_same_role(boto3_session):
     """
     iam = boto3_session.client("iam")
     iam.create_role(RoleName="two-policy-role", AssumeRolePolicyDocument=TRUST_POLICY)
-    policy_doc_s3 = json.dumps({
-        "Version": "2012-10-17",
-        "Statement": [{"Effect": "Allow", "Action": "s3:*", "Resource": "*"}],
-    })
-    policy_doc_iam = json.dumps({
-        "Version": "2012-10-17",
-        "Statement": [{"Effect": "Allow", "Action": "iam:*", "Resource": "*"}],
-    })
-    iam.put_role_policy(RoleName="two-policy-role", PolicyName="S3Policy", PolicyDocument=policy_doc_s3)
-    iam.put_role_policy(RoleName="two-policy-role", PolicyName="IAMPolicy", PolicyDocument=policy_doc_iam)
+    policy_doc_s3 = json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [{"Effect": "Allow", "Action": "s3:*", "Resource": "*"}],
+        }
+    )
+    policy_doc_iam = json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [{"Effect": "Allow", "Action": "iam:*", "Resource": "*"}],
+        }
+    )
+    iam.put_role_policy(
+        RoleName="two-policy-role", PolicyName="S3Policy", PolicyDocument=policy_doc_s3
+    )
+    iam.put_role_policy(
+        RoleName="two-policy-role",
+        PolicyName="IAMPolicy",
+        PolicyDocument=policy_doc_iam,
+    )
     findings = policy_scanner.run(boto3_session, RUN_ID)
     r09 = [f for f in findings if f["rule_id"] == "R09"]
     assert len(r09) == 2
@@ -440,10 +493,12 @@ def attach_customer_managed_policy(iam, rolename, policy_name, effect, action):
         action:      a string ("s3:*") or list (["iam:*", "ec2:Describe*"])
     """
     iam.create_role(RoleName=rolename, AssumeRolePolicyDocument=TRUST_POLICY)
-    policy_doc = json.dumps({
-        "Version": "2012-10-17",
-        "Statement": [{"Effect": effect, "Action": action, "Resource": "*"}],
-    })
+    policy_doc = json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [{"Effect": effect, "Action": action, "Resource": "*"}],
+        }
+    )
     response = iam.create_policy(PolicyName=policy_name, PolicyDocument=policy_doc)
     iam.attach_role_policy(RoleName=rolename, PolicyArn=response["Policy"]["Arn"])
 
@@ -524,7 +579,9 @@ def test_r10_no_finding_no_attached_policies(boto3_session):
     R10 only inspects attached managed policies — a role with none should be skipped cleanly.
     """
     iam = boto3_session.client("iam")
-    iam.create_role(RoleName="r10-no-policy-role", AssumeRolePolicyDocument=TRUST_POLICY)
+    iam.create_role(
+        RoleName="r10-no-policy-role", AssumeRolePolicyDocument=TRUST_POLICY
+    )
     findings = policy_scanner.run(boto3_session, RUN_ID)
     r10 = [f for f in findings if f["rule_id"] == "R10"]
     assert len(r10) == 0
@@ -604,24 +661,41 @@ def test_r10_two_wildcard_policies_same_role(boto3_session):
     Verifies the policy loop emits one finding per violating policy.
     """
     iam = boto3_session.client("iam")
-    iam.create_role(RoleName="r10-two-policy-role", AssumeRolePolicyDocument=TRUST_POLICY)
+    iam.create_role(
+        RoleName="r10-two-policy-role", AssumeRolePolicyDocument=TRUST_POLICY
+    )
 
     # Create and attach the first customer-managed wildcard policy
-    s3_policy_doc = json.dumps({
-        "Version": "2012-10-17",
-        "Statement": [{"Effect": "Allow", "Action": "s3:*", "Resource": "*"}],
-    })
-    s3_response = iam.create_policy(PolicyName="R10S3WildcardPolicy", PolicyDocument=s3_policy_doc)
-    iam.attach_role_policy(RoleName="r10-two-policy-role", PolicyArn=s3_response["Policy"]["Arn"])
+    s3_policy_doc = json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [{"Effect": "Allow", "Action": "s3:*", "Resource": "*"}],
+        }
+    )
+    s3_response = iam.create_policy(
+        PolicyName="R10S3WildcardPolicy", PolicyDocument=s3_policy_doc
+    )
+    iam.attach_role_policy(
+        RoleName="r10-two-policy-role", PolicyArn=s3_response["Policy"]["Arn"]
+    )
 
     # Create and attach the second customer-managed wildcard policy
-    iam_policy_doc = json.dumps({
-        "Version": "2012-10-17",
-        "Statement": [{"Effect": "Allow", "Action": "iam:*", "Resource": "*"}],
-    })
-    iam_response = iam.create_policy(PolicyName="R10IAMWildcardPolicy", PolicyDocument=iam_policy_doc)
-    iam.attach_role_policy(RoleName="r10-two-policy-role", PolicyArn=iam_response["Policy"]["Arn"])
+    iam_policy_doc = json.dumps(
+        {
+            "Version": "2012-10-17",
+            "Statement": [{"Effect": "Allow", "Action": "iam:*", "Resource": "*"}],
+        }
+    )
+    iam_response = iam.create_policy(
+        PolicyName="R10IAMWildcardPolicy", PolicyDocument=iam_policy_doc
+    )
+    iam.attach_role_policy(
+        RoleName="r10-two-policy-role", PolicyArn=iam_response["Policy"]["Arn"]
+    )
 
     findings = policy_scanner.run(boto3_session, RUN_ID)
     r10 = [f for f in findings if f["rule_id"] == "R10"]
     assert len(r10) == 2
+
+
+# %%

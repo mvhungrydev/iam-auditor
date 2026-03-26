@@ -21,6 +21,11 @@ RUN_ID = "run_test_123"
 # %%
 """
 # %% Setup — run once
+import os
+import sys
+import pytest
+import botocore
+from unittest.mock import patch
 import os, sys, boto3, botocore
 from moto import mock_aws
 from unittest.mock import patch

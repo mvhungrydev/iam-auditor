@@ -25,6 +25,67 @@ RUN_ID = "run_test_123"
 UNUSED_DAYS = 90
 
 
+"""
+# %% Setup — run once
+import os
+import sys
+import pytest
+import botocore
+from unittest.mock import patch
+from datetime import datetime, timezone, timedelta
+import os, sys, boto3, botocore
+from moto import mock_aws
+from unittest.mock import patch
+
+def find_project_root(marker="pytest.ini"):
+    path = os.getcwd()
+    while path != os.path.dirname(path):
+        if os.path.exists(os.path.join(path, marker)):
+            return path
+        path = os.path.dirname(path)
+    raise FileNotFoundError(f"Could not find project root containing {marker}")
+sys.path.insert(0, os.path.join(find_project_root(), "src/lambda"))
+
+from auditors import credential_report
+
+RUN_ID = "run_test_123"
+UNUSED_DAYS = 90
+os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
+def run_test(test_fn):
+    with mock_aws():
+        session = boto3.Session(region_name="us-east-1")
+        test_fn(session)
+        print(f"PASS: {test_fn.__name__}")
+
+# %%
+run_test(test_r02_root_access_key)
+
+# %%
+run_test(test_r03_user_no_mfa)
+
+# %%
+run_test(test_r05_key_unused)
+
+# %%
+run_test(test_r06_key_not_rotated)
+
+# %%
+run_test(test_r08_password_not_used)
+
+# %%
+run_test(test_compliant_user)
+
+# %%
+run_test(test_threshold_respected)
+
+#%%
+"""
+# %%
+
+
 def days_ago(n):
     """Returns an ISO 8601 timestamp for n days ago in UTC.
     Used to construct dates for moto IAM resources when needed.
@@ -32,18 +93,6 @@ def days_ago(n):
     return (datetime.now(timezone.utc) - timedelta(days=n)).strftime(
         "%Y-%m-%dT%H:%M:%S+00:00"
     )
-
-
-"""
-# What boto3_session fixture does — replicate this in the Interactive Window
-import boto3
-from moto import mock_aws
-
-mock = mock_aws()
-mock.start()
-boto3_session = boto3.Session(region_name="us-east-1")
-
-"""
 
 
 def mock_credential_report(csv_content):
@@ -200,3 +249,6 @@ def test_threshold_respected(boto3_session):
         findings = credential_report.run(boto3_session, RUN_ID, UNUSED_DAYS)
     r05 = [f for f in findings if f["rule_id"] == "R05"]
     assert len(r05) == 0
+
+
+# %%
