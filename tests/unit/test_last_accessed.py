@@ -18,7 +18,6 @@ from moto import mock_aws
 import boto3
 
 RUN_ID = "run_test_123"
-JOB_ID = "test-job-id"
 
 # %%
 # Interactive development — replicate the boto3_session fixture manually
@@ -107,16 +106,16 @@ def last_accessed_response(days_ago=None):
         last_auth = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
 
     service = {
-        "serviceName": "Amazon S3",
-        "serviceNamespace": "s3",
-        "totalAuthenticatedEntities": 0,
+        "ServiceName": "Amazon S3",
+        "ServiceNamespace": "s3",
+        "TotalAuthenticatedEntities": 0,
     }
     if last_auth:
-        service["lastAuthenticated"] = last_auth
+        service["LastAuthenticated"] = last_auth
 
     return {
-        "jobStatus": "COMPLETED",
-        "servicesLastAccessed": [service],
+        "JobStatus": "COMPLETED",
+        "ServicesLastAccessed": [service],
     }
 
 
@@ -133,9 +132,9 @@ def patch_last_accessed(days_ago_by_role):
 
     def mock_api_call(self, operation_name, api_params):
         if operation_name == "GenerateServiceLastAccessedDetails":
-            return {"jobId": JOB_ID}
+            return {"JobId": api_params.get("Arn")}
         if operation_name == "GetServiceLastAccessedDetails":
-            role_arn = api_params.get("Arn")
+            role_arn = api_params.get("JobId")
             days = days_ago_by_role.get(role_arn)
             return last_accessed_response(days)
         return original_call(self, operation_name, api_params)
