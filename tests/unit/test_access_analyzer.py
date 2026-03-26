@@ -1,3 +1,4 @@
+# %%
 import os
 import sys
 import pytest
@@ -19,94 +20,48 @@ RUN_ID = "run_test_123"
 
 # %%
 """
-# Interactive development — replicate the boto3_session fixture manually
-import boto3, botocore
+# %% Setup — run once
+import os, sys, boto3, botocore
 from moto import mock_aws
 from unittest.mock import patch
-import os, sys
 
-
-# Walk up from cwd until we find the project root (identified by pytest.ini or setup.sh)
 def find_project_root(marker="pytest.ini"):
     path = os.getcwd()
-    while path != os.path.dirname(path):  # stop at filesystem root
+    while path != os.path.dirname(path):
         if os.path.exists(os.path.join(path, marker)):
             return path
         path = os.path.dirname(path)
     raise FileNotFoundError(f"Could not find project root containing {marker}")
 
-
 sys.path.insert(0, os.path.join(find_project_root(), "src/lambda"))
-
 from auditors import access_analyzer
 
+RUN_ID = "run_test_123"
 os.environ["AWS_ACCESS_KEY_ID"] = "testing"
 os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
 os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 
-mock = mock_aws()
-mock.start()
-
-session = boto3.Session(region_name="us-east-1")
-# moto does not implement accessanalyzer — patch both ListAnalyzers and ListFindings
-# at the botocore level to inject controlled test data.
-original_call = botocore.client.BaseClient._make_api_call
-
-
-ANALYZER_ARN = "arn:aws:access-analyzer:us-east-1:123456789012:analyzer/test-analyzer"
-
-def mock_api_call(self, operation_name, api_params):
-    print(f"API call: {operation_name} with params {api_params}")
-    if operation_name == "ListAnalyzers":
-        print("Mock ListAnalyzers called with params:", api_params)
-        return {
-            "analyzers": [
-                {
-                    "arn": ANALYZER_ARN,
-                    "name": "test-analyzer",
-                    "type": "ACCOUNT",
-                    "status": "ACTIVE",
-                    "createdAt": "2024-01-01T00:00:00+00:00",
-                }
-            ]
-        }
-    if operation_name == "ListFindings":
-        print("Mock ListFindings called with params:", api_params)
-        return {
-            "findings": [
-                {
-                    "id": "test-finding-id",
-                    "type": "S3Bucket",
-                    "resource": "arn:aws:s3:::my-exposed-bucket",
-                    "resourceType": "AWS::S3::Bucket",
-                    "status": "ACTIVE",
-                    "action": ["s3:GetObject", "s3:ListBucket"],
-                    "condition": {},
-                    "createdAt": "2024-01-01T00:00:00+00:00",
-                    "analyzedAt": "2024-01-01T00:00:00+00:00",
-                    "updatedAt": "2024-01-01T00:00:00+00:00",
-                    "isPublic": True,
-                    "principal": {"AWS": "*"},
-                }
-            ]
-        }
-    return original_call(self, operation_name, api_params)
-
-
-
+def run_test(test_fn):
+    with mock_aws():
+        session = boto3.Session(region_name="us-east-1")
+        test_fn(session)
+        print(f"PASS: {test_fn.__name__}")
 
 # %%
-run_id = "run_test_123"
-with patch("botocore.client.BaseClient._make_api_call", mock_api_call):
-    findings = access_analyzer.run(session, run_id)
+run_test(test_r01_active_finding)
 
 # %%
-for f in findings:
-    print(f["rule_id"], f["resource_arn"], f["detail"])
+run_test(test_r01_archived_finding_not_returned)
 
 # %%
+run_test(test_no_analyzers_returns_empty)
+
+# %%
+run_test(test_analyzer_with_no_findings)
+#%%
 """
 
+# %%
 FAKE_ANALYZER = {
     "arn": "arn:aws:access-analyzer:us-east-1:123456789012:analyzer/test-analyzer",
     "name": "test-analyzer",
@@ -219,3 +174,6 @@ def test_analyzer_with_no_findings(boto3_session):
         findings = access_analyzer.run(boto3_session, RUN_ID)
 
     assert findings == []
+
+
+# %%
