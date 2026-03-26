@@ -39,17 +39,21 @@ def run(session, run_id, unused_days):
     for page in paginator.paginate():
         for role in page["Roles"]:
             if role["Path"].startswith("/aws-service-role/"):
+                print(f"Skipping AWS service role: {role['RoleName']}")
                 continue
 
             role_arn = role["Arn"]
             role_name = role["RoleName"]
+            print(f"Scanning role: {role_name} ({role_arn})")
 
             resp = iam.generate_service_last_accessed_details(Arn=role_arn)
             job_id = resp["JobId"]
+            print(f"  Generated job {job_id}")
 
             while True:
                 details = iam.get_service_last_accessed_details(JobId=job_id)
                 if details["JobStatus"] == "COMPLETED":
+                    print(f"  Job {job_id} completed")
                     break
 
             # Find the most recent LastAuthenticated across all services.
@@ -70,6 +74,9 @@ def run(session, run_id, unused_days):
                     if last_auth is None
                     else f"Role {role_name} last used {(now - last_auth).days} days ago"
                 )
+                print(f"  Finding: R07 — {detail}")
                 findings.append(_finding(run_id, "R07", "MEDIUM", role_arn, detail))
+            else:
+                print(f"  OK — last used {(now - last_auth).days} days ago (threshold: {unused_days})")
 
     return findings

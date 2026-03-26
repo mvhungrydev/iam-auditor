@@ -6,6 +6,7 @@ import botocore
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 
+
 try:
     sys.path.insert(
         0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../src/lambda")
@@ -18,21 +19,17 @@ from moto import mock_aws
 import boto3
 
 RUN_ID = "run_test_123"
-
-# %%
-# Interactive development — replicate the boto3_session fixture manually
 """
-
-import os, sys
-
-sys.path.insert(0, os.path.join(os.getcwd(), "src/lambda"))
-os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
-os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-import boto3, botocore
+# %% Setup — run once
+import os
+import sys
+import pytest
+import botocore
+from datetime import datetime, timezone, timedelta
+from unittest.mock import patch
+import os, sys, boto3, botocore
 from moto import mock_aws
 from unittest.mock import patch
-
 
 def find_project_root(marker="pytest.ini"):
     path = os.getcwd()
@@ -41,57 +38,40 @@ def find_project_root(marker="pytest.ini"):
             return path
         path = os.path.dirname(path)
     raise FileNotFoundError(f"Could not find project root containing {marker}")
-
-
 sys.path.insert(0, os.path.join(find_project_root(), "src/lambda"))
+
 from auditors import last_accessed
 
-mock = mock_aws()
-mock.start()
-session = boto3.Session(region_name="us-east-1")
-iam = session.client("iam")
+RUN_ID = "run_test_123"
+os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 
-# Create a test role in moto
-iam.create_role(
-    RoleName="old-role",
-    Path="/",
-    AssumeRolePolicyDocument='{"Version":"2012-10-17","Statement":[]}',
-)
-role_arn = "arn:aws:iam::123456789012:role/old-role"
-
-original_call = botocore.client.BaseClient._make_api_call
-
+def run_test(test_fn):
+    with mock_aws():
+        session = boto3.Session(region_name="us-east-1")
+        test_fn(session)
+        print(f"PASS: {test_fn.__name__}")
 
 # %%
-def mock_api_call(self, operation_name, api_params):
-    if operation_name == "GenerateServiceLastAccessedDetails":
-        return {"jobId": "test-job-id"}
-    if operation_name == "GetServiceLastAccessedDetails":
-        from datetime import datetime, timezone, timedelta
+run_test(test_r07_role_unused_91_days)
 
-        last_auth = (datetime.now(timezone.utc) - timedelta(days=91)).isoformat()
-        return {
-            "jobStatus": "COMPLETED",
-            "servicesLastAccessed": [
-                {
-                    "serviceName": "Amazon S3",
-                    "serviceNamespace": "s3",
-                    "lastAuthenticated": last_auth,
-                    "totalAuthenticatedEntities": 1,
-                }
-            ],
-        }
-    return original_call(self, operation_name, api_params)
+# %%
+run_test(test_r07_role_used_recently_no_finding)
 
-run_id = "run_test_123"
-with patch("botocore.client.BaseClient._make_api_call", mock_api_call):
-    findings = last_accessed.run(session, run_id, unused_days=90)
+# %%
+run_test(test_r07_role_never_used)
 
-print("Findings: {}".format(len(findings)))
-for f in findings:
-    print(f["rule_id"], f["resource_arn"], f["detail"])
+# %%
+run_test(test_r07_threshold_respected)
 
+# %%
+run_test(test_r07_skips_aws_service_roles)
+
+# %%
+run_test(test_r07_empty_roles_returns_empty)
 """
+
 # %%
 
 
@@ -232,3 +212,6 @@ def test_r07_empty_roles_returns_empty(boto3_session):
         findings = last_accessed.run(boto3_session, RUN_ID, unused_days=90)
 
     assert findings == []
+
+
+# %%
