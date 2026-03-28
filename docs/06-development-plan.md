@@ -88,28 +88,56 @@ _As a developer, I need `setup.sh` to run clean so any team member can onboard i
 
 _As the auditor, I need to parse the IAM Credential Report CSV to detect user hygiene issues._
 
-**Background:** `iam:GenerateCredentialReport` + `iam:GetCredentialReport` return a CSV of all IAM users.
-The CSV has columns: `user`, `password_enabled`, `password_last_used`, `mfa_active`, `access_key_1_active`,
-`access_key_1_last_used_date`, `access_key_1_last_rotated`, etc.
+**Background:** `iam:GenerateCredentialReport` is async — it kicks off a background job and returns
+immediately. You must poll `iam:GetCredentialReport` until the response `State` field equals `COMPLETE`
+before reading the CSV. The report is returned as base64-encoded bytes; decode with `.decode("utf-8")`
+before parsing.
+
+The CSV always has a `<root_account>` row as its first data row. This row uses the string literal
+`"<root_account>"` as the username — not a real IAM user. R02 targets this row specifically.
+`resource_arn` for the root row is set to the string `"root"` since root has no ARN in IAM.
+
+The CSV columns relevant to these rules:
+- `user` — IAM username (or `<root_account>`)
+- `password_enabled` — `"true"` / `"false"` / `"not_supported"` (root uses `"not_supported"`)
+- `mfa_active` — `"true"` / `"false"`
+- `access_key_1_active` — `"true"` / `"false"`
+- `access_key_1_last_used_date` — ISO date string or `"N/A"`
+- `access_key_1_last_rotated` — ISO date string or `"N/A"`
+- `password_last_used` — ISO date string, `"no_information"`, or `"N/A"`
 
 **Tasks:**
 
 - [x] Write `tests/unit/test_credential_report.py` first (TDD):
-  - Test R02: root row with `access_key_1_active=true` → CRITICAL finding `{"rule_id": "R02", "severity": "CRITICAL", ...}`
-  - Test R03: user with `mfa_active=false` and `password_enabled=true` → HIGH finding
-  - Test R05: user with `access_key_1_last_used_date` > 90 days ago → MEDIUM finding
-  - Test R06: user with `access_key_1_last_rotated` > 90 days ago → MEDIUM finding
-  - Test R08: user with `password_last_used` > 90 days ago → MEDIUM finding
+
+  **Why botocore patching is needed for R02 and R06:**
+  moto's `generate_credential_report` always returns a report built from whatever IAM state you've
+  set up in moto — you cannot inject a root access key or a specific `last_rotated` date directly
+  through the moto API. For these two rules, the test patches `botocore.client.BaseClient._make_api_call`
+  to return a hand-crafted CSV response. This bypasses moto entirely for those two calls.
+  Using `patch.object` on the class does not work here — boto3 creates new client instances inside
+  `run()`, and `patch.object` only affects the specific instance it was called on. Patching the
+  class-level method via `patch("botocore.client.BaseClient._make_api_call", ...)` intercepts all
+  instances including ones created after the patch is applied.
+
+  - Test R02: patch `GetCredentialReport` to return CSV with root row `access_key_1_active=true` → CRITICAL finding with `resource_arn="root"`
+  - Test R03: create moto IAM user with no MFA, `password_enabled=true` → HIGH finding
+  - Test R05: create moto IAM user with access key last used > 90 days ago → MEDIUM finding
+  - Test R06: patch `GetCredentialReport` to return CSV with `access_key_1_last_rotated` > 90 days ago → MEDIUM finding
+  - Test R08: create moto IAM user with `password_last_used` > 90 days ago → MEDIUM finding
   - Test: user with everything compliant → empty list returned
   - Test: `unused_days` threshold is respected (89 days = no finding, 91 days = finding)
 
 - [x] Implement `src/lambda/auditors/credential_report.py`:
   - `run(session, run_id: str, unused_days: int) -> list[dict]`
-  - Call `generate_credential_report()`, poll until status is `COMPLETE`, then `get_credential_report()`
-  - Decode the bytes CSV content with `.decode("utf-8")`, parse with `csv.DictReader`
-  - Apply rules, return list of finding dicts (schema: `run_id`, `finding_id`, `rule_id`, `severity`, `resource_arn`, `detail`, `data_source`, `created_at`, `expires_at`)
-  - `run_id` is passed in as a parameter (not generated inside the auditor — handler owns it)
-  - Note: R02 and R06 tests use `botocore.client.BaseClient._make_api_call` patching — `patch.object` on the class does not affect new boto3 client instances created inside `run()`
+  - Call `generate_credential_report()`, then poll `get_credential_report()` in a `while True` loop
+    until `response["State"] == "COMPLETE"`
+  - The report content is at `response["Content"]` — a bytes object. Decode with `.decode("utf-8")`
+    then parse with `csv.DictReader(io.StringIO(content))`
+  - Skip any date field that equals `"N/A"` or `"no_information"` — treat as no data
+  - Apply rules, return list of finding dicts (schema: `run_id`, `finding_id`, `rule_id`, `severity`,
+    `resource_arn`, `detail`, `data_source`, `created_at`, `expires_at`)
+  - `run_id` is passed in as a parameter — the handler owns `run_id` generation, not the auditor
 
 **Done when:** All credential report tests pass. ✅ (7/7 green)
 
@@ -119,26 +147,39 @@ The CSV has columns: `user`, `password_enabled`, `password_last_used`, `mfa_acti
 
 _As the auditor, I need to detect inline IAM policies that grant wildcard actions on sensitive services._
 
-**Background:** R04 requires fetching inline policies attached directly to IAM users (not managed policies).
-The API chain is: `iam:ListUsers` → `iam:ListUserPolicies` (per user) → `iam:GetUserPolicy` (per policy name) →
-parse the JSON policy document. A finding is raised if any `Statement` has `Effect=Allow` AND
-`Action` contains `*` or a service-wildcard like `s3:*`, `iam:*`, `ec2:*`, or `lambda:*`.
+**Background:** There are two types of IAM policies — inline and managed.
+- **Inline policies** are embedded directly on a user or role and only exist for that principal.
+  R04 (users) and R09 (roles) target inline policies.
+- **Managed policies** are standalone objects that can be attached to multiple principals.
+  AWS-managed policies (ARN prefix `arn:aws:iam::aws:`) are maintained by AWS and are intentionally
+  broad — skip them. R10 only targets customer-managed policies (no `arn:aws:iam::aws:` prefix).
 
-R09 mirrors R04 but targets IAM roles via: `iam:ListRoles` → `iam:ListRolePolicies` → `iam:GetRolePolicy`.
+**Why `get_user_policy` returns URL-encoded JSON:**
+The IAM API returns inline policy documents as URL-encoded JSON strings, not plain JSON. Before
+parsing with `json.loads()`, decode with `urllib.parse.unquote()`. Skipping this step causes a
+JSON parse error.
 
-R10 detects customer-managed policies attached to roles with wildcard actions via:
-`iam:ListRoles` → `iam:ListAttachedRolePolicies` → skip `arn:aws:iam::aws:` → `iam:GetPolicy` (DefaultVersionId) → `iam:GetPolicyVersion`.
+**Why `DefaultVersionId` is needed for R10:**
+A managed policy can have multiple versions. `get_policy()` returns the policy metadata including
+`DefaultVersionId` (e.g. `"v3"`). You then call `get_policy_version(PolicyArn=..., VersionId="v3")`
+to retrieve the actual policy document. The document is also URL-encoded — apply `unquote()` before
+parsing.
+
+**Why only SENSITIVE_SERVICES are flagged:**
+A service wildcard like `sqs:*` or `cloudwatch:*` is overly permissive but lower risk than `iam:*`
+or `ec2:*`. The auditor scopes findings to the highest-impact services: `{"s3", "iam", "ec2", "lambda"}`.
+A full wildcard `"*"` is always flagged regardless of service.
 
 **Tasks:**
 
 - [x] Write `tests/unit/test_policy_scanner.py` first (TDD):
   - Test R04: user with inline policy `Action: "*", Resource: "*"` → HIGH finding
   - Test R04: user with inline policy `Action: "s3:*"` → HIGH finding (service-level wildcard)
-  - Test R04: user with inline policy `Action: ["iam:*", "ec2:DescribeInstances"]` → HIGH finding (mixed)
+  - Test R04: user with inline policy `Action: ["iam:*", "ec2:DescribeInstances"]` → HIGH finding (mixed — one wildcard in a list is enough)
   - Test: user with inline policy `Action: "s3:GetObject"` (no wildcard) → no finding
   - Test: user with no inline policies → empty list returned
   - Test: multiple users, only one has a wildcard policy → only 1 finding returned
-  - Test: `Effect=Deny` with wildcard action → no finding (only Allow statements flagged)
+  - Test: `Effect=Deny` with wildcard action → no finding (only `Effect=Allow` is flagged)
   - Test R09: role with inline policy `Action: "*"` → HIGH finding
   - Test R09: role with inline policy `Action: "s3:*"` → HIGH finding
   - Test R09: role with inline policy `Action: ["iam:*", "ec2:DescribeInstances"]` → HIGH finding (mixed)
@@ -157,12 +198,18 @@ R10 detects customer-managed policies attached to roles with wildcard actions vi
 
 - [x] Implement `src/lambda/auditors/policy_scanner.py`:
   - `run(session, run_id: str) -> list[dict]`
-  - R04: paginate `list_users()` → `list_user_policies` → `get_user_policy` per user; rule_id=R04, severity=HIGH, resource_arn=user ARN
-  - R09: paginate `list_roles()` → `list_role_policies` → `get_role_policy` per role; rule_id=R09, severity=HIGH, resource_arn=role ARN
-  - R10: paginate `list_roles()` → `list_attached_role_policies` → skip `arn:aws:iam::aws:` ARNs → `get_policy` for DefaultVersionId → `get_policy_version`; rule_id=R10, severity=HIGH
-  - `_is_wildcard_action(action)` helper: flags `"*"` and `"<service>:*"` for SENSITIVE_SERVICES
+  - R04: paginate `list_users()` → for each user call `list_user_policies` → for each policy name
+    call `get_user_policy` → URL-decode and parse the document → check statements
+    resource_arn = user ARN, rule_id = R04, severity = HIGH
+  - R09: paginate `list_roles()` → `list_role_policies` → `get_role_policy` per role → same
+    document parsing as R04. resource_arn = role ARN, rule_id = R09, severity = HIGH
+  - R10: paginate `list_roles()` → `list_attached_role_policies` → skip any ARN starting with
+    `arn:aws:iam::aws:` → `get_policy` returns `DefaultVersionId` → `get_policy_version` returns
+    the document → URL-decode, parse, check statements. rule_id = R10, severity = HIGH
+  - `_is_wildcard_action(action)` helper: returns `True` for `"*"` or `"<service>:*"` where service
+    is in SENSITIVE_SERVICES. Normalises to lowercase before checking.
   - SENSITIVE_SERVICES = `{"s3", "iam", "ec2", "lambda"}`
-  - `detail` = resource name + policy name + offending action(s)
+  - `detail` = resource name + policy name + offending action(s) joined into a readable string
 
 **Done when:** All policy scanner tests pass. ✅ (R04/R09/R10 — 25 tests green)
 
@@ -172,24 +219,52 @@ R10 detects customer-managed policies attached to roles with wildcard actions vi
 
 _As the auditor, I need to detect external access findings from IAM Access Analyzer._
 
-**Background:** `access-analyzer:ListAnalyzers` lists analyzers in the account. For each,
-`access-analyzer:ListFindings` returns external access findings (status=ACTIVE only).
+**Background:** IAM Access Analyzer continuously monitors resource-based policies (S3 buckets, IAM roles,
+KMS keys, etc.) and flags any resource that grants access to a principal outside the AWS account.
+`list_analyzers()` returns all analyzers configured in the account — an account may have zero (if the
+feature is not enabled) or more than one (e.g. one per region). For each analyzer, `list_findings()`
+returns the findings it has detected.
+
+**Finding statuses:**
+- `ACTIVE` — the resource is currently externally accessible. This is what we flag.
+- `ARCHIVED` — the account owner acknowledged and dismissed the finding. Do not flag these.
+- `RESOLVED` — the policy was fixed and the finding is no longer active. Do not flag these.
+
+We filter at the API level with `filter={"status": {"eq": ["ACTIVE"]}}` to reduce response size, but
+also re-check `status == "ACTIVE"` client-side as a belt-and-suspenders guard in case the API returns
+unexpected results.
+
+**Why botocore patching is used instead of `mock_aws()`:**
+moto does not implement the `accessanalyzer` service — calling `session.client("accessanalyzer")`
+inside `mock_aws()` would raise a `NotImplementedError`. Instead, tests patch
+`botocore.client.BaseClient._make_api_call` directly to intercept `ListAnalyzers` and `ListFindings`
+calls and return hand-crafted responses. All other calls fall through to the real moto backend.
+This is the same approach used in Story 2.4 for `GenerateServiceLastAccessedDetails`.
 
 **Tasks:**
 
-- [ ] Write `tests/unit/test_access_analyzer.py` first:
-  - Test R01: analyzer with 1 active ACTIVE finding → 1 CRITICAL finding returned
-  - Test: finding with status=ARCHIVED → not returned
-  - Test: no analyzers in account → empty list returned (graceful, not an error)
-  - Test: analyzer exists but 0 findings → empty list returned
+- [x] Write `tests/unit/test_access_analyzer.py` first (TDD):
+  - Define `FAKE_ANALYZER` and `ACTIVE_FINDING` as module-level constants — reused across tests
+  - Define `patch_access_analyzer(analyzers, findings)` helper: returns a `mock_api_call` function
+    that intercepts `ListAnalyzers` and `ListFindings`, falls through for everything else
+  - Test R01: analyzer with 1 ACTIVE finding → 1 CRITICAL finding; assert `resource_arn` = finding's
+    `resource` field; assert `detail` contains the action strings
+  - Test: finding with `status=ARCHIVED` → empty list (archived findings must never produce R01)
+  - Test: no analyzers in account → empty list returned (graceful, not an error — many accounts
+    don't have Access Analyzer enabled)
+  - Test: analyzer exists but 0 findings → empty list returned (clean account, no false positives)
 
-- [ ] Implement `src/lambda/auditors/access_analyzer.py`:
+- [x] Implement `src/lambda/auditors/access_analyzer.py`:
   - `run(session, run_id: str) -> list[dict]`
-  - `list_analyzers()`, iterate; for each call `list_findings(analyzerArn=..., filter={"status": {"eq": ["ACTIVE"]}})`
-  - Map each finding to the finding schema with `rule_id=R01`, `severity=CRITICAL`
-  - `resource_arn` = finding's `resource` field; `detail` = finding's `action` list joined
+  - `aa = session.client("accessanalyzer")`
+  - `list_analyzers()` — if empty, return `[]` immediately
+  - For each analyzer: call `list_findings(analyzerArn=..., filter={"status": {"eq": ["ACTIVE"]}})`
+  - For each finding: skip if `status != "ACTIVE"` (client-side guard)
+  - `resource_arn` = `finding["resource"]`; `detail` = `", ".join(finding.get("action", []))`
+    or `"unknown"` if the action list is empty
+  - Emit `rule_id=R01`, `severity=CRITICAL`
 
-**Done when:** All access analyzer tests pass.
+**Done when:** All access analyzer tests pass. ✅ (4/4 green)
 
 ---
 
@@ -197,28 +272,66 @@ _As the auditor, I need to detect external access findings from IAM Access Analy
 
 _As the auditor, I need to detect IAM roles that haven't been used in 90+ days._
 
-**Background:** `iam:ListRoles` lists all roles. For each, `iam:GenerateServiceLastAccessedDetails`
-kicks off an async job. Poll `iam:GetServiceLastAccessedDetails` until `JobStatus=COMPLETED`.
-If `LastAuthenticated` is null or > 90 days ago, the role is flagged.
+**Background:** `iam:GenerateServiceLastAccessedDetails` is async — it accepts a role ARN and returns
+a `JobId` immediately. You must then poll `iam:GetServiceLastAccessedDetails(JobId=...)` until
+`JobStatus == COMPLETED` before reading the results. In real AWS this may take 1–2 seconds; in moto
+it completes on the first poll.
+
+The response contains a `ServicesLastAccessed` list — one entry per AWS service that the role has
+permission to call. Each entry may or may not have a `LastAuthenticated` timestamp. A role that has
+never been used will have no `LastAuthenticated` on any service. A role that has been used will have
+it on at least one service. We take the **most recent** `LastAuthenticated` across all services as the
+role's effective last-used date.
+
+**Why `/aws-service-role/` roles are skipped:**
+Roles under this path are created and managed by AWS on behalf of services (e.g. the role that allows
+EC2 Auto Scaling to terminate instances). The customer cannot modify or delete them — flagging them
+as unused would generate noise with no actionable remediation.
+
+**Why `isinstance(svc_auth, str)` check is needed:**
+moto returns `LastAuthenticated` as an ISO string. Real AWS returns it as a `datetime` object.
+The isinstance check normalises both to `datetime` before comparison.
+
+**Why botocore patching is used for `GenerateServiceLastAccessedDetails`:**
+moto does not fully implement these calls. `list_roles()` is handled natively by moto (so real IAM
+state can be set up via the moto IAM API), but the generate/get last-accessed calls are intercepted
+at the botocore level. The patch maps each role ARN to a `days_ago` value, making it easy to control
+exactly how stale each role appears.
 
 **Tasks:**
 
-- [ ] Write `tests/unit/test_last_accessed.py` first:
-  - Test R07: role with `LastAuthenticated` = 91 days ago → MEDIUM finding
-  - Test: role with `LastAuthenticated` = 10 days ago → no finding
-  - Test: role with `LastAuthenticated` = null (never used) → MEDIUM finding
-  - Test: service role (trust policy principal is a service like `lambda.amazonaws.com`) → still flagged (no exclusion)
-  - Test: empty roles list → empty list returned
+- [x] Write `tests/unit/test_last_accessed.py` first (TDD):
+  - Define `last_accessed_response(days_ago)` helper — builds a `GetServiceLastAccessedDetails`
+    response with `JobStatus=COMPLETED` and a single service entry. `days_ago=None` means never used
+    (no `LastAuthenticated` key in the service entry).
+  - Define `patch_last_accessed(days_ago_by_role)` helper — intercepts
+    `GenerateServiceLastAccessedDetails` (returns `{"JobId": role_arn}` so the ARN doubles as the
+    job ID) and `GetServiceLastAccessedDetails` (looks up days_ago by job ID). All other calls fall
+    through to moto.
+  - Define `make_role(boto3_session, role_name, path="/")` helper — creates a real IAM role in moto
+    and returns its ARN. This lets `list_roles()` inside `run()` find the role naturally via moto.
+  - Test R07: role with `LastAuthenticated` = 91 days ago → MEDIUM finding; assert `resource_arn` = role ARN
+  - Test: role used 10 days ago → no finding
+  - Test: role never used (`LastAuthenticated` = null) → MEDIUM finding with "never been used" detail
+  - Test: threshold boundary — 89 days = no finding, 91 days = finding (both roles in same run)
+  - Test: role under `/aws-service-role/` path with 200 days → no finding (skipped at list stage)
+  - Test: no roles in account → empty list returned
 
-- [ ] Implement `src/lambda/auditors/last_accessed.py`:
+- [x] Implement `src/lambda/auditors/last_accessed.py`:
   - `run(session, run_id: str, unused_days: int) -> list[dict]`
-  - `list_roles()` with pagination; skip roles with path prefix `/aws-service-role/` (AWS-managed)
-  - For each role: `generate_service_last_accessed_details(Arn=role_arn)` → `job_id`
-  - Poll `get_service_last_accessed_details(JobId=job_id)` until `JobStatus == COMPLETED`
-  - Find the most recent `LastAuthenticated` across all services for the role
-  - Apply 90-day threshold, emit R07 finding if exceeded
+  - Pre-compute `threshold = timedelta(days=unused_days)` and `now = datetime.now(timezone.utc)`
+    once before the loop — consistent timestamp across all role comparisons in the run
+  - Paginate `list_roles()` — skip any role where `role["Path"].startswith("/aws-service-role/")`
+  - For each remaining role: call `generate_service_last_accessed_details(Arn=role_arn)` → `job_id`
+  - Poll `get_service_last_accessed_details(JobId=job_id)` in a `while True` loop until
+    `details["JobStatus"] == "COMPLETED"`
+  - Loop `details["ServicesLastAccessed"]`, find the most recent `LastAuthenticated`; normalise
+    strings to `datetime` via `datetime.fromisoformat()`
+  - If `last_auth is None` or `(now - last_auth) > threshold` → emit R07, MEDIUM finding
+  - `detail` distinguishes the two cases: `"Role X has never been used"` vs
+    `"Role X last used N days ago"`
 
-**Done when:** All last accessed tests pass.
+**Done when:** All last accessed tests pass. ✅ (6/6 green)
 
 ---
 
@@ -226,27 +339,77 @@ If `LastAuthenticated` is null or > 90 days ago, the role is flagged.
 
 _As the Lambda entry point, handler.py must read config, run all auditors, store findings, and send the email._
 
+**Background:** `lambda_handler(event, context)` is called directly by the AWS Lambda runtime — it receives
+only `event` and `context`, never a boto3 session. This means it creates its own `boto3.Session()` internally,
+unlike the auditors which receive a session as a parameter. This distinction matters for testing: moto must
+be active at the time `lambda_handler` is called, not just at fixture setup time.
+
 **Tasks:**
 
 - [ ] Write `tests/unit/test_handler.py` first:
-  - Use conftest `dynamodb_table`, `sns_topic`, `ssm_params` fixtures
-  - Monkeypatch all 4 auditors' `run()` to return controlled sets of findings
-  - Test: handler reads the 3 SSM params correctly
-  - Test: handler writes each finding to DynamoDB (`PutItem` for each) with correct key schema
-  - Test: handler publishes 1 SNS message with the correct subject format `[IAM Auditor] Weekly Report — YYYY-MM-DD`
-  - Test: SNS body contains `CRITICAL`, `HIGH`, `MEDIUM` counts
-  - Test: handler returns dict with `run_id`, `total`, `critical`, `high`, `medium`
-  - Test: if all auditors return empty lists → runs fine, SNS published with 0 findings
+
+  **Fixture setup:**
+  - Request all 3 conftest fixtures: `dynamodb_table`, `sns_topic`, `ssm_params`
+  - These have dependencies — `ssm_params` depends on `sns_topic` (it reads the SNS ARN to seed the SSM
+    parameter), and `dynamodb_table` provides the table the handler will write findings to. Requesting all
+    3 guarantees the full environment is in place before the handler runs.
+  - Since `boto3_session` uses `with mock_aws(): yield`, moto is already active for the duration of every
+    test that uses these fixtures — `lambda_handler` creates its own session inside that active mock context.
+
+  **Monkeypatching the auditors:**
+  - Use `unittest.mock.patch` to replace each auditor's `run()` with a function returning a controlled
+    list of findings. The auditors have already been tested in isolation — handler tests should control
+    what auditors return, not re-test their logic.
+  - Patch at the handler's import path, e.g. `patch("handler.credential_report.run", return_value=[...])`.
+    Patching at the source module path won't work because `handler.py` already has a reference to the
+    imported name.
+
+  **Tests:**
+  - Test: handler reads the 3 SSM params — assert the correct parameter names are read:
+    `/iam-auditor/sns-topic-arn`, `/iam-auditor/dynamodb-table-name`, `/iam-auditor/unused-days-threshold`
+  - Test: handler writes each finding to DynamoDB — after calling `lambda_handler`, scan the table and
+    assert each finding is present with correct `run_id` (PK) and `finding_id` (SK)
+  - Test: handler publishes exactly 1 SNS message with subject `[IAM Auditor] Weekly Report — YYYY-MM-DD`
+    (date matches the run date, not hardcoded)
+  - Test: SNS body contains severity counts — assert the strings `CRITICAL`, `HIGH`, `MEDIUM` appear in
+    the message body with correct counts
+  - Test: handler returns a summary dict with keys `run_id`, `total`, `critical`, `high`, `medium` and
+    correct integer counts
+  - Test: all auditors return empty lists → handler runs without error, SNS is still published, all counts
+    are 0
 
 - [ ] Implement `src/lambda/handler.py`:
-  - `lambda_handler(event, context)` entry point
+
+  **Entry point and session:**
+  - `lambda_handler(event, context)` — AWS Lambda calls this directly
+  - Create `session = boto3.Session()` inside the function (region comes from the Lambda environment,
+    not hardcoded)
   - Generate `run_id = f"run_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"`
-  - Read 3 SSM params via `ssm.get_parameter()`
-  - Call all 4 auditors, collect `findings = []`
-  - Write each finding to DynamoDB with `put_item()`
-  - Build SNS email body per the format in `docs/03-technical-design.md §8`
-  - Publish to SNS
-  - Return summary dict
+
+  **Read SSM parameters:**
+  - Create `ssm = session.client("ssm")`
+  - Call `ssm.get_parameter(Name="/iam-auditor/sns-topic-arn")` — value is at `["Parameter"]["Value"]`
+  - Call `ssm.get_parameter(Name="/iam-auditor/dynamodb-table-name")` — same path in response
+  - Call `ssm.get_parameter(Name="/iam-auditor/unused-days-threshold")` — value is a string, cast to `int`
+
+  **Run auditors:**
+  - Import all 4 auditors at the top of the file
+  - Call each in sequence, passing `session` and `run_id`; `credential_report` and `last_accessed` also
+    receive `unused_days`
+  - Collect all results into a single `findings = []` list
+
+  **Write to DynamoDB:**
+  - Create `table = session.resource("dynamodb").Table(table_name)`
+  - Iterate `findings` and call `table.put_item(Item=finding)` for each — one item per finding
+
+  **Build and publish SNS email:**
+  - Subject: `f"[IAM Auditor] Weekly Report — {datetime.utcnow().strftime('%Y-%m-%d')}"`
+  - Body: follow the format in `docs/03-technical-design.md §8` — include run metadata, counts by severity,
+    and a detail block listing CRITICAL findings by rule ID, resource ARN, and detail string
+  - Call `sns.publish(TopicArn=topic_arn, Subject=subject, Message=body)`
+
+  **Return summary:**
+  - Return `{"run_id": run_id, "total": len(findings), "critical": critical_count, "high": high_count, "medium": medium_count}`
 
 **Done when:** All handler tests pass. Full `pytest tests/` suite is green.
 

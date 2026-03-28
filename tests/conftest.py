@@ -5,7 +5,7 @@ from moto import mock_aws
 
 
 # Sets fake AWS credentials in environment variables.
-# Moto requires these to be present even though no real AWS calls are made.
+# %%Moto requires these to be present even though no real AWS calls are made.
 @pytest.fixture
 def aws_credentials():
     os.environ["AWS_ACCESS_KEY_ID"] = "testing"

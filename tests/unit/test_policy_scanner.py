@@ -55,7 +55,7 @@ def run_test(test_fn):
     with mock_aws():
         session = boto3.Session(region_name="us-east-1")
         test_fn(session)
-        print(f"PASS: {test_fn.__name__}")
+        print(f"{test_fn.__name__}")
 
 # %% R04
 run_test(test_r04_full_wildcard)
