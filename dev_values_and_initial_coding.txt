@@ -8,3 +8,5 @@ pytest tests/unit/test_policy_scanner.py -v
 pytest tests/unit/test_access_analyzer.py -v
 
 pytest tests/unit/test_last_accessed.py -v --tb=short 2>&1
+
+python -m pytest tests/unit/test_handler.py -v 2>&1
