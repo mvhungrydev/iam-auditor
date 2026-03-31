@@ -492,16 +492,16 @@ _As a developer, I need the directory skeleton created before writing any `.tf` 
 
 **Tasks:**
 
-- [ ] Create `infra/modules/vpc/` with `main.tf`, `variables.tf`, `outputs.tf`
-- [ ] Create `infra/modules/ecr/` with `main.tf`, `variables.tf`, `outputs.tf`
-- [ ] Create `infra/modules/iam/` with `main.tf`, `variables.tf`, `outputs.tf`
-- [ ] Create `infra/modules/lambda/` with `main.tf`, `variables.tf`, `outputs.tf`
-- [ ] Create `infra/modules/dynamodb/` with `main.tf`, `variables.tf`, `outputs.tf`
-- [ ] Create `infra/modules/sns/` with `main.tf`, `variables.tf`, `outputs.tf`
-- [ ] Create `infra/modules/ssm/` with `main.tf`, `variables.tf`, `outputs.tf`
-- [ ] Create `infra/envs/dev/` with `main.tf`, `variables.tf`, `terraform.tfvars`, `outputs.tf`, `versions.tf`, `backend.tf`
-- [ ] Create `infra/envs/prod/` with same file set (placeholder — not deployed initially)
-- [ ] Add `infra/envs/dev/terraform.tfvars` to `.gitignore` (contains email address)
+- [x] Create `infra/modules/vpc/` with `main.tf`, `variables.tf`, `outputs.tf`
+- [x] Create `infra/modules/ecr/` with `main.tf`, `variables.tf`, `outputs.tf`
+- [x] Create `infra/modules/iam/` with `main.tf`, `variables.tf`, `outputs.tf`
+- [x] Create `infra/modules/lambda/` with `main.tf`, `variables.tf`, `outputs.tf`
+- [x] Create `infra/modules/dynamodb/` with `main.tf`, `variables.tf`, `outputs.tf`
+- [x] Create `infra/modules/sns/` with `main.tf`, `variables.tf`, `outputs.tf`
+- [x] Create `infra/modules/ssm/` with `main.tf`, `variables.tf`, `outputs.tf`
+- [x] Create `infra/envs/dev/` with `main.tf`, `variables.tf`, `terraform.tfvars`, `outputs.tf`, `versions.tf`, `backend.tf`
+- [x] Create `infra/envs/prod/` with same file set (placeholder — not deployed initially)
+- [x] Add `infra/envs/dev/terraform.tfvars` to `.gitignore` (contains email address)
 
 **Done when:** Directory structure matches `docs/04-infrastructure-spec.md §1` exactly.
 
