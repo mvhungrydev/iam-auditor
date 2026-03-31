@@ -12,3 +12,13 @@ pytest tests/unit/test_last_accessed.py -v --tb=short 2>&1
 python -m pytest tests/unit/test_handler.py -v 2>&1
 
 pytest --cov=src/lambda --cov-report=term-missing
+
+docker build -t iam-auditor-lambda src/lambda/     
+
+docker run -p 9000:8080 -e AWS_DEFAULT_REGION=us-east-1 -e AWS_ACCESS_KEY_ID=testing -e AWS_SECRET_ACCESS_KEY=testing iam-auditor-lambdaa:latest
+
+curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{}'
+
+brew install trivy
+
+trivy image --severity CRITICAL,HIGH --ignore-unfixed iam-auditor-lambdaa

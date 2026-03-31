@@ -421,9 +421,9 @@ _As a developer, I want to see coverage before moving on to containers._
 
 **Tasks:**
 
-- [ ] Run `pytest --cov=src/lambda --cov-report=term-missing tests/`
-- [ ] Confirm >= 80% coverage on all 4 modules (`handler.py`, each auditor)
-- [ ] Fix any untested branches surfaced by the report
+- [x] Run `pytest --cov=src/lambda --cov-report=term-missing tests/`
+- [x] Confirm >= 80% coverage on all 4 modules (`handler.py`, each auditor)
+- [x] Fix any untested branches surfaced by the report
 
 **Done when:** Coverage report shows ≥ 80% across all Lambda modules.
 
@@ -445,8 +445,8 @@ that accepts invocation payloads.
 
 **Tasks:**
 
-- [ ] Run `docker build -t iam-auditor-lambda src/lambda/` — should succeed
-- [ ] Run the container with RIE:
+- [x] Run `docker build -t iam-auditor-lambda src/lambda/` — should succeed
+- [x] Run the container with RIE:
   ```bash
   docker run -p 9000:8080 \
     -e AWS_DEFAULT_REGION=us-east-1 \
@@ -454,12 +454,12 @@ that accepts invocation payloads.
     -e AWS_SECRET_ACCESS_KEY=fake \
     iam-auditor-lambda
   ```
-- [ ] Send a test invocation:
+- [x] Send a test invocation:
   ```bash
   curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{}'
   ```
-- [ ] Verify the response is a valid JSON dict (will likely fail on real AWS calls — that's expected at this stage)
-- [ ] Verify no import errors or syntax errors in the response
+- [x] Verify the response is a valid JSON dict (will likely fail on real AWS calls — that's expected at this stage)
+- [x] Verify no import errors or syntax errors in the response
 
 **Done when:** Container starts, accepts invocations, returns JSON (not a crash).
 
@@ -471,10 +471,10 @@ _As a developer, I want to run Trivy locally before CI to catch CVEs early._
 
 **Tasks:**
 
-- [ ] Install Trivy locally: `brew install trivy`
-- [ ] Run `trivy image --severity CRITICAL,HIGH --ignore-unfixed iam-auditor-lambda`
-- [ ] Investigate any findings; pin or update `requirements.txt` if needed
-- [ ] Document any accepted risks (e.g. base image OS CVEs with no fix available)
+- [x] Install Trivy locally: `brew install trivy`
+- [x] Run `trivy image --severity CRITICAL,HIGH --ignore-unfixed iam-auditor-lambda`
+- [x] Investigate any findings; pin or update `requirements.txt` if needed
+- [x] Document any accepted risks (e.g. base image OS CVEs with no fix available)
 
 **Done when:** Trivy scan passes with no CRITICAL or HIGH fixable CVEs.
 
