@@ -698,4 +698,17 @@ def test_r10_two_wildcard_policies_same_role(boto3_session):
     assert len(r10) == 2
 
 
+def test_r10_deny_wildcard_not_flagged(boto3_session):
+    """Effect=Deny with a wildcard action on a customer-managed policy should NOT produce a finding.
+
+    Deny statements restrict what a role can do — they are the opposite of a risk.
+    R10 only evaluates Effect=Allow statements.
+    """
+    iam = boto3_session.client("iam")
+    attach_customer_managed_policy(iam, "r10-deny-role", "DenyPolicy", "Deny", "*")
+    findings = policy_scanner.run(boto3_session, RUN_ID)
+    r10 = [f for f in findings if f["rule_id"] == "R10"]
+    assert len(r10) == 0
+
+
 # %%

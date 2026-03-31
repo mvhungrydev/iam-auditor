@@ -5,12 +5,23 @@ from auditors import credential_report, policy_scanner, access_analyzer, last_ac
 
 
 def lambda_handler(event, context):
+    # %%
+    print("[handler] Lambda invoked with event:", event)
+    print("Creating boto3 session and loading SSM parameters...")
     session = boto3.Session()
     ssm = session.client("ssm")
 
-    sns_topic_arn = ssm.get_parameter(Name="/iam-auditor/sns-topic-arn")["Parameter"]["Value"]
-    table_name = ssm.get_parameter(Name="/iam-auditor/dynamodb-table-name")["Parameter"]["Value"]
-    unused_days = int(ssm.get_parameter(Name="/iam-auditor/unused-days-threshold")["Parameter"]["Value"])
+    sns_topic_arn = ssm.get_parameter(Name="/iam-auditor/sns-topic-arn")["Parameter"][
+        "Value"
+    ]
+    table_name = ssm.get_parameter(Name="/iam-auditor/dynamodb-table-name")[
+        "Parameter"
+    ]["Value"]
+    unused_days = int(
+        ssm.get_parameter(Name="/iam-auditor/unused-days-threshold")["Parameter"][
+            "Value"
+        ]
+    )
     print(f"[handler] SSM loaded — table={table_name}, unused_days={unused_days}")
 
     run_id = str(uuid.uuid4())
