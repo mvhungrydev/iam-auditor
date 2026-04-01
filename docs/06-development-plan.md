@@ -611,6 +611,40 @@ _The env entrypoint calls all modules, passing outputs between them._
 - [ ] Write `infra/envs/dev/terraform.tfvars`: set your email, region = `us-east-1`, threshold = `90`
 - [ ] Copy `envs/dev/` structure to `envs/prod/` (placeholder — not deployed)
 
+**LocalStack smoke test (run after all modules are wired):**
+
+- [ ] Install LocalStack dependencies (one-time, add to `requirements-dev.txt`):
+  ```bash
+  pip install localstack terraform-local awscli-local
+  ```
+- [ ] Start LocalStack (requires Docker running):
+  ```bash
+  localstack start
+  ```
+  LocalStack pulls its Docker image on first run and exposes all AWS service APIs at `http://localhost:4566`.
+
+- [ ] Run `tflocal init` from `infra/envs/dev/`
+
+  `tflocal` is a thin wrapper around `terraform` that automatically overrides all AWS provider
+  endpoints to point at LocalStack. No changes to `.tf` files are needed.
+
+- [ ] Run `tflocal apply -auto-approve` — creates all resources in LocalStack.
+  Expected: all 7 modules apply without error.
+
+- [ ] Verify key resources were created using `awslocal` (LocalStack-aware AWS CLI):
+  ```bash
+  awslocal ec2 describe-vpcs --query 'Vpcs[*].CidrBlock'
+  awslocal dynamodb list-tables
+  awslocal sns list-topics
+  awslocal ssm get-parameter --name /iam-auditor/sns-topic-arn
+  awslocal ssm get-parameter --name /iam-auditor/dynamodb-table-name
+  awslocal ssm get-parameter --name /iam-auditor/unused-days-threshold
+  ```
+
+- [ ] Run `tflocal destroy` to clean up LocalStack state
+
+**Done when:** `tflocal apply` completes with no errors and all 6 verification commands return expected output.
+
 ---
 
 ### Story 4.10 — Local Terraform validation

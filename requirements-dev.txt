@@ -3,3 +3,6 @@
 moto[iam,dynamodb,sns,ssm]>=5.0.0
 pytest>=8.0.0
 pytest-cov>=5.0.0
+localstack>=3.0.0
+terraform-local>=0.18.0
+awscli-local>=0.22.0

@@ -141,6 +141,10 @@ Developer pushes code
 **Purpose:** Preview infrastructure changes before merge, post as PR comment
 **Auth:** GitHub OIDC → IAM Role (no stored AWS credentials)
 
+> **Local only:** LocalStack (`tflocal apply`) is used in Story 4.9 for local wiring validation
+> before this stage is ever reached. It is not a CI pipeline stage — `terraform validate`,
+> `checkov`, and the real `terraform plan` here provide equivalent coverage in CI.
+
 ```yaml
 - name: Terraform Plan
   run: |
