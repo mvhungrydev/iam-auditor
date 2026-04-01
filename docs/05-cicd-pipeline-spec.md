@@ -50,7 +50,28 @@ Developer pushes code
 
 ---
 
-## 2. Pipeline Triggers
+## 2. Tooling Decision — GitHub Actions vs CodeBuild/CodePipeline
+
+GitHub Actions was chosen over AWS-native CI/CD (CodeBuild + CodePipeline) for the following reasons:
+
+| Factor | GitHub Actions | CodeBuild / CodePipeline |
+|--------|---------------|--------------------------|
+| Industry adoption | Dominant in DevOps teams today | Common in AWS-only orgs |
+| Cost | 2,000 free minutes/month on public repos | Per-build-minute + per-pipeline charges |
+| OIDC auth | First-class support — no stored credentials | IAM roles configured implicitly |
+| Visibility | Pipeline YAML lives in the repo — reviewable alongside code | Config spread across AWS console |
+| Portfolio signal | Recognizable to any DevOps reviewer | Signals AWS-only exposure |
+
+**When CodeBuild/CodePipeline would be the right choice:**
+- The organization mandates AWS-native tooling only
+- The pipeline requires deep integration with CodeArtifact, CodeDeploy, or CodeCommit
+- The source repository is not GitHub
+
+For this project, GitHub Actions is the correct choice: it is free, credential-free via OIDC, and demonstrates tooling breadth relevant to the target role.
+
+---
+
+## 3. Pipeline Triggers
 
 | Event | Jobs Run |
 |-------|----------|
