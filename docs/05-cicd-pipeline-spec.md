@@ -28,7 +28,7 @@ Developer pushes code
 │                                    │ (PR comment)  │  │
 │                                    └───────────────┘  │
 │                                                       │
-│  On Merge to main:                                    │
+│  On Merge to dev:                                     │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────┐  │
 │  │ gitleaks │→│  bandit  │→│ checkov  │→│  trivy  │  │
 │  └──────────┘ └──────────┘ └──────────┘ └────┬────┘  │
@@ -54,8 +54,8 @@ Developer pushes code
 
 | Event | Jobs Run |
 |-------|----------|
-| Pull Request opened/updated against `main` | Security scans + `terraform plan` |
-| Push / merge to `main` | Security scans + Docker build/push + `terraform apply` |
+| Pull Request opened/updated against `dev` | Security scans + `terraform plan` |
+| Push / merge to `dev` | Security scans + Docker build/push + `terraform apply` |
 | Manual workflow dispatch | Security scans + Docker build/push + `terraform apply` |
 
 ---
@@ -169,7 +169,7 @@ Developer pushes code
 
 ---
 
-### Stage 6 — Docker Build + Push to ECR (main only)
+### Stage 6 — Docker Build + Push to ECR (dev only)
 **Purpose:** Build the Lambda container and push to ECR with a unique image tag
 **Tag strategy:** Use the Git SHA for traceability — `latest` also updated
 
@@ -199,7 +199,7 @@ Developer pushes code
 
 ---
 
-### Stage 7 — Terraform Apply (main only)
+### Stage 7 — Terraform Apply (dev only)
 **Purpose:** Apply infrastructure changes and update Lambda to the new image digest
 
 ```yaml
@@ -241,7 +241,7 @@ No long-lived AWS credentials stored in GitHub Secrets. Instead:
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:YOUR_GITHUB_USERNAME/iam-auditor:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": "repo:YOUR_GITHUB_USERNAME/iam-auditor:ref:refs/heads/dev"
         }
       }
     }
@@ -260,7 +260,7 @@ Minimum permissions for the GitHub Actions role:
 
 ## 5. Branch Protection Rules
 
-Configure in GitHub repo Settings → Branches → Branch protection rules for `main`:
+Configure in GitHub repo Settings → Branches → Branch protection rules for `dev`:
 
 | Rule | Setting |
 |------|---------|
@@ -280,9 +280,9 @@ name: IAM Auditor CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
   pull_request:
-    branches: [main]
+    branches: [dev]
   workflow_dispatch:
 
 permissions:
@@ -368,7 +368,7 @@ jobs:
     name: Build, Push, Deploy
     runs-on: ubuntu-latest
     needs: security-scan
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 
