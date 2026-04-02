@@ -70,7 +70,7 @@ Manual auditing via the AWS console is slow, error-prone, inconsistent, and prod
 | FR3 | System SHALL generate and parse the IAM Credential Report |
 | FR4 | System SHALL query IAM Last Accessed data for all roles |
 | FR5 | System SHALL assign severity (CRITICAL / HIGH / MEDIUM) to each finding |
-| FR6 | System SHALL write all findings to DynamoDB with a 90-day TTL |
+| FR6 | System SHALL write all findings to DynamoDB with a 30-day TTL |
 | FR7 | System SHALL publish a summary report to an SNS email subscription |
 | FR8 | System SHALL be triggerable manually (on-demand invocation) |
 

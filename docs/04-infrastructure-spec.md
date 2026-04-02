@@ -116,11 +116,11 @@ infra/
 | `detail` | S | Human-readable finding detail | `External access via policy` |
 | `data_source` | S | Which API produced this finding | `access_analyzer` |
 | `created_at` | S | ISO 8601 timestamp | `2026-03-21T08:00:00Z` |
-| `expires_at` | N | Unix epoch — DynamoDB TTL | `1750000000` (90 days out) |
+| `expires_at` | N | Unix epoch — DynamoDB TTL | `1750000000` (30 days out) |
 
 ### TTL Configuration
 - Attribute: `expires_at`
-- Retention: 90 days from `created_at`
+- Retention: 30 days from `created_at`
 - Purpose: automatically purge old findings to stay within free tier (25GB)
 
 ### Access Patterns

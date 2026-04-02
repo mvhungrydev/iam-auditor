@@ -30,7 +30,7 @@ def _finding(run_id, rule_id, severity, arn, detail):
         "data_source": "credential_report",
         "created_at": now.isoformat(),
         # expires_at is a Unix timestamp — DynamoDB TTL requires an integer epoch second
-        "expires_at": int((now + timedelta(days=90)).timestamp()),
+        "expires_at": int((now + timedelta(days=30)).timestamp()),
     }
 
 

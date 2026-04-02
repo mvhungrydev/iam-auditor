@@ -14,7 +14,7 @@ def _finding(run_id, rule_id, severity, arn, detail):
         "detail": detail,
         "data_source": "last_accessed",
         "created_at": now.isoformat(),
-        "expires_at": int((now + timedelta(days=90)).timestamp()),
+        "expires_at": int((now + timedelta(days=30)).timestamp()),
     }
 
 
