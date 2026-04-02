@@ -91,6 +91,11 @@ infra/
 | SSM Parameter (Table) | `aws_ssm_parameter` | ssm | `/iam-auditor/dynamodb-table-name` |
 | SSM Parameter (Threshold) | `aws_ssm_parameter` | ssm | `/iam-auditor/unused-days-threshold` |
 | CloudWatch Log Group | `aws_cloudwatch_log_group` | lambda | Retention: 7 days |
+| Demo IAM user (no MFA) | `aws_iam_user` | demo-data | Triggers R03 — dev only |
+| Demo IAM user (stale key) | `aws_iam_user` + `aws_iam_access_key` | demo-data | Triggers R06 — dev only |
+| Demo IAM role (inline wildcard) | `aws_iam_role` + inline policy | demo-data | Triggers R09 — dev only |
+| Demo IAM role (managed wildcard) | `aws_iam_role` + `aws_iam_policy` | demo-data | Triggers R10 — dev only |
+| Demo IAM role (unused) | `aws_iam_role` | demo-data | Triggers R07 — dev only |
 
 ---
 

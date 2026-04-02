@@ -665,6 +665,41 @@ _Catch all config errors before any AWS calls._
 
 ---
 
+### Story 4.11 — Demo data module
+
+_As a developer, I want intentionally misconfigured IAM resources in the account so the Lambda has real findings to detect during the Phase 5 demo._
+
+**Background:** A clean AWS account produces zero findings, which makes for a poor portfolio demo.
+This module creates deliberately non-compliant IAM resources that trigger 5 of the 8 detection rules.
+It lives in its own module so it can be applied and destroyed independently — never deployed to prod.
+
+**Resources created:**
+
+| Resource | Misconfiguration | Rule triggered | Severity |
+|---|---|---|---|
+| IAM user `demo-no-mfa-user` | Console access, MFA disabled | R03 | HIGH |
+| IAM user `demo-stale-key-user` | Access key created 120 days ago | R06 | MEDIUM |
+| IAM role `demo-wildcard-inline-role` | Inline policy with `s3:*` | R09 | HIGH |
+| IAM role `demo-wildcard-managed-role` | Customer-managed policy with `iam:*` | R10 | HIGH |
+| IAM role `demo-unused-role` | Role with no activity (never used) | R07 | MEDIUM |
+
+**Notes:**
+- R01 (Access Analyzer) and R02 (root access key) cannot be safely or programmatically created — excluded
+- R04 (user inline wildcard) and R05 (unused key) omitted to keep demo concise — R09/R10 cover wildcard risk
+- All demo resources are tagged `demo = "true"` for easy identification and cleanup
+- Module is called from `envs/dev/main.tf` with a `create_demo_data = true` variable — set to `false` to skip
+
+**Tasks:**
+
+- [ ] Create `infra/modules/demo-data/` with `main.tf`, `variables.tf`, `outputs.tf`
+- [ ] Write demo IAM users, roles, and policies per the table above
+- [ ] Add `create_demo_data` variable to `infra/envs/dev/variables.tf` and `terraform.tfvars`
+- [ ] Call the module conditionally from `infra/envs/dev/main.tf` using `count = var.create_demo_data ? 1 : 0`
+
+**Done when:** `terraform apply` creates all 5 demo resources and a Lambda run produces at least 5 findings across R03, R06, R07, R09, R10.
+
+---
+
 ## PHASE 5 — AWS First Deploy (Dev Environment)
 
 **Goal:** Infrastructure is live in AWS. Lambda invokes successfully against real AWS APIs.
