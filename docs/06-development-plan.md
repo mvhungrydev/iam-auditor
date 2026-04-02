@@ -576,10 +576,10 @@ _Resources: 3 SSM Standard parameters_
 
 **Tasks:**
 
-- [ ] Write `infra/modules/ssm/main.tf`
-- [ ] Parameters: `/iam-auditor/sns-topic-arn`, `/iam-auditor/dynamodb-table-name`, `/iam-auditor/unused-days-threshold`
-- [ ] Values are passed in as variables (wired from other module outputs in `envs/dev/main.tf`)
-- [ ] Expose outputs: `parameter_arns` map
+- [x] Write `infra/modules/ssm/main.tf`
+- [x] Parameters: `/iam-auditor/sns-topic-arn`, `/iam-auditor/dynamodb-table-name`, `/iam-auditor/unused-days-threshold`
+- [x] Values are passed in as variables (wired from other module outputs in `envs/dev/main.tf`)
+- [x] Expose outputs: `parameter_arns` map
 
 ---
 
@@ -589,12 +589,12 @@ _Resources: Security group, Lambda function (container), CloudWatch log group, E
 
 **Tasks:**
 
-- [ ] Write `infra/modules/lambda/main.tf`
-- [ ] Security group: no inbound, HTTPS egress to `0.0.0.0/0`
-- [ ] Lambda: `package_type = "Image"`, `image_uri` variable for ECR image
-- [ ] CloudWatch log group: retention 7 days
-- [ ] EventBridge rule: `cron(0 8 ? * MON *)` (every Monday 08:00 UTC)
-- [ ] Expose outputs: `function_arn`, `function_name`
+- [x] Write `infra/modules/lambda/main.tf`
+- [x] Security group: no inbound, HTTPS egress to `0.0.0.0/0`
+- [x] Lambda: `package_type = "Image"`, `image_uri` variable for ECR image
+- [x] CloudWatch log group: retention 7 days
+- [x] EventBridge rule: `cron(0 8 ? * MON *)` (every Monday 08:00 UTC)
+- [x] Expose outputs: `function_arn`, `function_name`
 
 ---
 
@@ -605,11 +605,17 @@ _The env entrypoint calls all modules, passing outputs between them._
 **Tasks:**
 
 - [ ] Write `infra/envs/dev/versions.tf`: Terraform >= 1.6, AWS provider ~> 5.0
-- [ ] Write `infra/envs/dev/backend.tf`: local backend for now (comment shows S3 upgrade path)
+- [ ] Write `infra/envs/dev/backend.tf`: S3 backend per `docs/04-infrastructure-spec.md §7`
+  - Bucket: `iam-auditor-tf-state-<your_account_id>` (replace with actual account ID)
+  - Key: `dev/terraform.tfstate`
+  - DynamoDB lock table: `iam-auditor-tf-state-lock`
+  - `encrypt = true`
+  - **Note:** This file is safe to commit — it contains no secrets. The S3 bucket and DynamoDB lock table are bootstrapped manually in Story 5.0 before `terraform init` is ever run.
 - [ ] Write `infra/envs/dev/main.tf`: call all 7 modules, wire outputs (SNS ARN → SSM, etc.)
 - [ ] Write `infra/envs/dev/variables.tf`: expose `alert_email`, `aws_region`, `ecr_image_tag`, `unused_days_threshold`
 - [ ] Write `infra/envs/dev/terraform.tfvars`: set your email, region = `us-east-1`, threshold = `90`
-- [ ] Copy `envs/dev/` structure to `envs/prod/` (placeholder — not deployed)
+- [ ] Write `infra/envs/prod/backend.tf`: same bucket, key = `prod/terraform.tfstate`
+- [ ] Copy remaining `envs/dev/` structure to `envs/prod/` (placeholder — not deployed)
 
 **LocalStack smoke test (run after all modules are wired):**
 
@@ -709,15 +715,104 @@ _This is the first time you touch AWS._
 
 ---
 
-### Story 5.1 — Bootstrap AWS prerequisites (one-time, manual)
+### Story 5.0 — Bootstrap Terraform remote state (one-time, manual)
 
-_Resources that Terraform can't create itself (the bootstrapping paradox)._
+_Resources that Terraform cannot create for itself — must exist before `terraform init` ever runs._
+
+**Background:** Terraform needs a remote backend to persist state across CI/CD pipeline runs. GitHub Actions runners are ephemeral — local state is destroyed at the end of every run. Without remote state, Terraform would treat every pipeline execution as a fresh account and attempt to re-create all resources. The S3 bucket and DynamoDB lock table must be created manually once, before `terraform init`.
 
 **Tasks:**
 
-- [ ] Confirm your AWS CLI identity: `aws sts get-caller-identity`
+- [ ] Confirm your AWS CLI identity and capture your account ID:
+  ```bash
+  aws sts get-caller-identity
+  ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+  echo "Account ID: ${ACCOUNT_ID}"
+  ```
+
+- [ ] Create the S3 state bucket — name must be globally unique; account ID ensures this:
+  ```bash
+  aws s3api create-bucket \
+    --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
+    --region us-east-1
+  ```
+
+- [ ] Enable versioning — allows state recovery if a file is accidentally overwritten:
+  ```bash
+  aws s3api put-bucket-versioning \
+    --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
+    --versioning-configuration Status=Enabled
+  ```
+
+- [ ] Enable AES-256 server-side encryption — state files contain resource ARNs and config values:
+  ```bash
+  aws s3api put-bucket-encryption \
+    --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
+    --server-side-encryption-configuration '{
+      "Rules": [{
+        "ApplyServerSideEncryptionByDefault": {
+          "SSEAlgorithm": "AES256"
+        }
+      }]
+    }'
+  ```
+
+- [ ] Block all public access — state files must never be publicly readable:
+  ```bash
+  aws s3api put-public-access-block \
+    --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
+    --public-access-block-configuration \
+      "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+  ```
+
+- [ ] Create the DynamoDB state lock table — prevents concurrent `apply` operations from corrupting state:
+  ```bash
+  aws dynamodb create-table \
+    --table-name iam-auditor-tf-state-lock \
+    --attribute-definitions AttributeName=LockID,AttributeType=S \
+    --key-schema AttributeName=LockID,KeyType=HASH \
+    --billing-mode PAY_PER_REQUEST \
+    --region us-east-1
+  ```
+  > `LockID` is the partition key name the Terraform S3 backend expects. PAY_PER_REQUEST billing keeps this within free tier — the table has very low write volume (one lock/unlock per apply).
+
+- [ ] Verify both resources exist and are ready:
+  ```bash
+  aws s3 ls | grep iam-auditor-tf-state
+  aws dynamodb describe-table \
+    --table-name iam-auditor-tf-state-lock \
+    --query 'Table.TableStatus'
+  ```
+  Expected: bucket name appears in S3 list, DynamoDB status = `"ACTIVE"`
+
+- [ ] Update `infra/envs/dev/backend.tf` — replace `<your_account_id>` with your actual account ID:
+  ```bash
+  echo "Your account ID is: ${ACCOUNT_ID}"
+  # Open infra/envs/dev/backend.tf and replace the placeholder
+  ```
+
+**Done when:** S3 bucket exists with versioning + encryption enabled, DynamoDB table status is ACTIVE, and `backend.tf` has the real account ID. `terraform init` (run in Story 5.1) will confirm the backend is reachable.
+
+---
+
+### Story 5.1 — Bootstrap remaining AWS prerequisites (one-time, manual)
+
+_Resources that Terraform can't create itself (the bootstrapping paradox) — continued from Story 5.0._
+
+**Tasks:**
+
 - [ ] Verify IAM Access Analyzer is enabled in `us-east-1` (console → Security → IAM Access Analyzer)
-- [ ] Run `terraform apply -target=module.ecr` first to create the ECR repo before pushing the image
+  - If not enabled: console → Security → IAM Access Analyzer → Create analyzer → Account type → Create
+- [ ] Run `terraform init` from `infra/envs/dev/` to verify the S3 backend is reachable:
+  ```bash
+  cd infra/envs/dev && terraform init
+  ```
+  Expected: `Successfully configured the backend "s3"!` — confirms Story 5.0 bootstrap succeeded.
+- [ ] Run `terraform apply -target=module.ecr` first to create the ECR repo before pushing the Lambda image:
+  ```bash
+  terraform apply -target=module.ecr
+  ```
+  > ECR must exist before the Docker push in Story 5.2. Targeting a single module avoids trying to create Lambda before the image exists.
 
 ---
 

@@ -96,6 +96,8 @@ infra/
 | Demo IAM role (inline wildcard) | `aws_iam_role` + inline policy | demo-data | Triggers R09 — dev only |
 | Demo IAM role (managed wildcard) | `aws_iam_role` + `aws_iam_policy` | demo-data | Triggers R10 — dev only |
 | Demo IAM role (unused) | `aws_iam_role` | demo-data | Triggers R07 — dev only |
+| Terraform State Bucket | S3 bucket | **bootstrapped** (not Terraform-managed) | `iam-auditor-tf-state-<account_id>` — versioning + AES-256 + public access blocked |
+| Terraform State Lock Table | DynamoDB table | **bootstrapped** (not Terraform-managed) | `iam-auditor-tf-state-lock` — `LockID` (String) PK, PAY_PER_REQUEST |
 
 ---
 
@@ -199,20 +201,170 @@ Keep only the 3 most recent images to stay within the 500MB free tier:
 
 ## 7. Terraform State
 
-- **Backend:** Local (default) for development
-- **Recommended for production:** S3 backend with DynamoDB state locking
-  ```hcl
-  terraform {
-    backend "s3" {
-      bucket         = "my-tf-state-bucket"
-      key            = "iam-auditor/terraform.tfstate"
-      region         = "us-east-1"
-      dynamodb_table = "terraform-state-lock"
-      encrypt        = true
-    }
+### Why Remote State Is Required
+
+GitHub Actions runners are **ephemeral** — the runner VM is destroyed at the end of every workflow run. If Terraform used local state, the `terraform.tfstate` file would be wiped after every pipeline execution. On the next run, Terraform would see no prior state and attempt to re-create every resource from scratch, producing duplicate resources, errors, and drift.
+
+Remote state in S3 solves this: the state file persists between runs, Terraform knows what already exists, and `plan`/`apply` only shows real changes.
+
+The DynamoDB lock table solves a second problem: concurrent `apply` operations (e.g., two developers or two simultaneous pipeline runs) can corrupt state if they both write at the same time. DynamoDB provides a distributed mutex — only one `terraform apply` can hold the lock at a time.
+
+---
+
+### State Resources
+
+| Resource | AWS Service | Name | Notes |
+|----------|-------------|------|-------|
+| State file storage | S3 | `iam-auditor-tf-state-<account_id>` | Versioning + AES-256 encryption + public access blocked |
+| State lock table | DynamoDB | `iam-auditor-tf-state-lock` | `LockID` (String) as partition key, PAY_PER_REQUEST billing |
+
+> **Important:** These two resources are **not managed by Terraform**. They must exist before `terraform init` can run. This is the Terraform bootstrapping paradox: Terraform needs a backend to store state, but it cannot create that backend using itself. They are created once with AWS CLI (see bootstrap commands below) and never destroyed — deleting them would orphan all Terraform state.
+
+---
+
+### Bootstrap Commands (one-time manual, run before first `terraform init`)
+
+```bash
+# Capture your AWS account ID
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+echo "Account ID: ${ACCOUNT_ID}"
+
+# 1. Create the S3 state bucket (name must be globally unique — account ID ensures this)
+aws s3api create-bucket \
+  --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
+  --region us-east-1
+
+# 2. Enable versioning — allows recovery if state is accidentally overwritten or corrupted
+aws s3api put-bucket-versioning \
+  --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
+  --versioning-configuration Status=Enabled
+
+# 3. Enable AES-256 server-side encryption — state files contain resource ARNs and config values
+aws s3api put-bucket-encryption \
+  --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
+  --server-side-encryption-configuration '{
+    "Rules": [{
+      "ApplyServerSideEncryptionByDefault": {
+        "SSEAlgorithm": "AES256"
+      }
+    }]
+  }'
+
+# 4. Block all public access — state files must never be publicly readable
+aws s3api put-public-access-block \
+  --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
+  --public-access-block-configuration \
+    "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+
+# 5. Create the DynamoDB state lock table
+#    LockID is the conventional partition key name used by the Terraform S3 backend
+aws dynamodb create-table \
+  --table-name iam-auditor-tf-state-lock \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST \
+  --region us-east-1
+
+# 6. Verify both resources exist before proceeding
+aws s3 ls | grep iam-auditor-tf-state
+aws dynamodb describe-table \
+  --table-name iam-auditor-tf-state-lock \
+  --query 'Table.TableStatus'
+```
+
+Expected output of step 6:
+```
+2026-xx-xx xx:xx:xx  iam-auditor-tf-state-<account_id>
+"ACTIVE"
+```
+
+---
+
+### `infra/envs/dev/backend.tf`
+
+```hcl
+terraform {
+  backend "s3" {
+    bucket         = "iam-auditor-tf-state-<your_account_id>"  # replace with actual account ID
+    key            = "dev/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "iam-auditor-tf-state-lock"
+    encrypt        = true
   }
-  ```
-- For this portfolio project: local state is acceptable; document the upgrade path
+}
+```
+
+### `infra/envs/prod/backend.tf`
+
+```hcl
+terraform {
+  backend "s3" {
+    bucket         = "iam-auditor-tf-state-<your_account_id>"  # same bucket, different key
+    key            = "prod/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "iam-auditor-tf-state-lock"
+    encrypt        = true
+  }
+}
+```
+
+> **Note:** Both files are safe to commit — they contain no secrets. The bucket name uses your account ID, which is not sensitive (it appears in all resource ARNs anyway). Replace `<your_account_id>` with your actual 12-digit AWS account ID.
+
+---
+
+### Why S3 Key Separation Matters
+
+Both environments share the same S3 bucket and DynamoDB lock table, but use **separate state keys**. This means:
+
+| Environment | S3 Key | Isolated From |
+|-------------|--------|---------------|
+| dev | `dev/terraform.tfstate` | Prod state, prod resources |
+| prod | `prod/terraform.tfstate` | Dev state, dev resources |
+
+Running `terraform apply` in `envs/dev/` reads and writes only `dev/terraform.tfstate`. It has no knowledge of prod resources. A failed dev apply cannot affect prod infrastructure. This is the core benefit of the `envs/` directory pattern combined with per-environment backend keys.
+
+The DynamoDB lock also scopes per key — a dev apply and a prod apply can run simultaneously without conflict because they acquire different lock entries (`dev/terraform.tfstate` vs `prod/terraform.tfstate`).
+
+---
+
+### CI/CD State Access — Required IAM Permissions
+
+When GitHub Actions calls `terraform init` and `terraform apply`, it uses the OIDC role. That role needs the following permissions on the state resources. These are already included in `infra/modules/iam/cicd_role.tf`:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "s3:GetObject",
+    "s3:PutObject",
+    "s3:DeleteObject",
+    "s3:ListBucket"
+  ],
+  "Resource": [
+    "arn:aws:s3:::iam-auditor-tf-state-<account_id>",
+    "arn:aws:s3:::iam-auditor-tf-state-<account_id>/*"
+  ]
+},
+{
+  "Effect": "Allow",
+  "Action": [
+    "dynamodb:GetItem",
+    "dynamodb:PutItem",
+    "dynamodb:DeleteItem"
+  ],
+  "Resource": "arn:aws:dynamodb:us-east-1:<account_id>:table/iam-auditor-tf-state-lock"
+}
+```
+
+| Permission | When Used | Why |
+|------------|-----------|-----|
+| `s3:GetObject` | `terraform init`, `plan`, `apply` | Download current state file before computing diff |
+| `s3:PutObject` | `terraform apply` | Write updated state file after resources change |
+| `s3:DeleteObject` | `terraform state rm`, workspace operations | Remove state entries when resources are deleted |
+| `s3:ListBucket` | `terraform init` | Verify the bucket exists and the key path is accessible |
+| `dynamodb:GetItem` | Start of every `plan`/`apply` | Check if a lock already exists — block if yes |
+| `dynamodb:PutItem` | Acquiring lock | Write lock entry before modifying state |
+| `dynamodb:DeleteItem` | Releasing lock | Remove lock entry after `apply` completes or fails |
 
 ---
 

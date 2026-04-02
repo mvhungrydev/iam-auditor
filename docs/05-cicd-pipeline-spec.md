@@ -166,12 +166,23 @@ For this project, GitHub Actions is the correct choice: it is free, credential-f
 > before this stage is ever reached. It is not a CI pipeline stage — `terraform validate`,
 > `checkov`, and the real `terraform plan` here provide equivalent coverage in CI.
 
+**How `terraform init` finds the S3 backend:**
+`infra/envs/dev/backend.tf` is committed to the repository and specifies the S3 bucket, key, region, and DynamoDB lock table. When `terraform init` runs in CI, it reads `backend.tf` automatically — no extra flags or environment variables are needed. The OIDC role credentials already in the environment (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` set by `configure-aws-credentials`) give Terraform the access it needs to reach S3 and DynamoDB.
+
+The S3 bucket and DynamoDB lock table must already exist (bootstrapped in Story 5.0) before this stage can succeed.
+
 ```yaml
+- name: Terraform Init
+  run: |
+    cd infra/envs/dev
+    # Reads backend config from backend.tf automatically — no -backend-config flags needed.
+    # Authenticates to S3 + DynamoDB using OIDC role credentials from the previous step.
+    terraform init
+
 - name: Terraform Plan
   run: |
-    cd infra
-    terraform init
-    terraform plan -no-color -out=tfplan
+    cd infra/envs/dev
+    terraform plan -no-color 2>&1 | tee plan.txt
   env:
     AWS_REGION: us-east-1
 
@@ -179,12 +190,12 @@ For this project, GitHub Actions is the correct choice: it is free, credential-f
   uses: actions/github-script@v7
   with:
     script: |
-      const plan = require('fs').readFileSync('infra/tfplan.txt', 'utf8')
+      const plan = require('fs').readFileSync('infra/envs/dev/plan.txt', 'utf8')
       github.rest.issues.createComment({
         issue_number: context.issue.number,
         owner: context.repo.owner,
         repo: context.repo.repo,
-        body: '```terraform\n' + plan + '\n```'
+        body: '### Terraform Plan\n```\n' + plan.slice(0, 65000) + '\n```'
       })
 ```
 
@@ -223,18 +234,27 @@ For this project, GitHub Actions is the correct choice: it is free, credential-f
 ### Stage 7 — Terraform Apply (dev only)
 **Purpose:** Apply infrastructure changes and update Lambda to the new image digest
 
+**State locking during apply:**
+Before modifying any resource, `terraform apply` writes a lock entry to the DynamoDB `iam-auditor-tf-state-lock` table (`LockID = "dev/terraform.tfstate"`). No other `apply` can run while the lock is held. After apply completes (or fails), the lock is released. If a pipeline is killed mid-apply, the lock can be manually released with `terraform force-unlock <lock_id>`.
+
 ```yaml
+- name: Terraform Init
+  run: |
+    cd infra/envs/dev
+    # Reads S3 backend from backend.tf — authenticates using OIDC role credentials.
+    # Downloads current dev/terraform.tfstate from S3 before computing the apply diff.
+    terraform init
+
 - name: Terraform Apply
   run: |
-    cd infra
-    terraform init
+    cd infra/envs/dev
     terraform apply -auto-approve \
       -var="ecr_image_tag=${{ github.sha }}"
   env:
     AWS_REGION: us-east-1
 ```
 
-Terraform updates `aws_lambda_function.image_uri` to the new ECR image tag, triggering Lambda to use the newly pushed container on next invocation.
+Terraform updates `aws_lambda_function.image_uri` to the new ECR image tag, triggering Lambda to use the newly pushed container on next invocation. After apply, the updated state file is written back to `s3://iam-auditor-tf-state-<account_id>/dev/terraform.tfstate` and the DynamoDB lock is released.
 
 ---
 
@@ -271,11 +291,35 @@ No long-lived AWS credentials stored in GitHub Secrets. Instead:
 ```
 
 ### IAM Role Permissions (CI/CD role)
-Minimum permissions for the GitHub Actions role:
-- `ecr:GetAuthorizationToken`, `ecr:BatchCheckLayerAvailability`, `ecr:PutImage`, etc.
-- `lambda:UpdateFunctionCode`, `lambda:UpdateFunctionConfiguration`
-- `terraform:*` scoped to this project's resources
-- Managed via Terraform in `infra/modules/iam/cicd_role.tf`
+Minimum permissions for the GitHub Actions role, grouped by purpose:
+
+**ECR — Docker image push**
+- `ecr:GetAuthorizationToken`
+- `ecr:BatchCheckLayerAvailability`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload`
+- `ecr:PutImage`, `ecr:BatchGetImage`, `ecr:DescribeRepositories`
+
+**Lambda — update function after image push**
+- `lambda:UpdateFunctionCode`
+- `lambda:UpdateFunctionConfiguration`
+- `lambda:GetFunction`, `lambda:GetFunctionConfiguration`
+
+**Terraform provisioning — manage all project resources**
+- `ec2:*` scoped to VPC, subnets, security groups, route tables, endpoints
+- `iam:PassRole` (to assign Lambda execution role)
+- `dynamodb:*` scoped to `iam-audit-findings` table
+- `sns:*` scoped to `iam-auditor-alerts` topic
+- `ssm:PutParameter`, `ssm:GetParameter`, `ssm:DeleteParameter` scoped to `/iam-auditor/*`
+- `logs:*` scoped to `/aws/lambda/iam-auditor` log group
+- `events:*` scoped to EventBridge rule `iam-auditor-*`
+
+**Terraform remote state — read/write state file and acquire lock**
+- `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` on `arn:aws:s3:::iam-auditor-tf-state-<account_id>/*`
+- `s3:ListBucket` on `arn:aws:s3:::iam-auditor-tf-state-<account_id>`
+- `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:DeleteItem` on `iam-auditor-tf-state-lock`
+
+> **Why state permissions are required:** `terraform init` downloads the current state from S3 before computing a plan. `terraform apply` acquires a DynamoDB lock, writes the updated state to S3, then releases the lock. Without these permissions the pipeline fails at `terraform init` with an `AccessDenied` error.
+
+All permissions are managed via Terraform in `infra/modules/iam/cicd_role.tf`.
 
 ---
 
@@ -369,15 +413,22 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Terraform Init
+        # Reads S3 backend from infra/envs/dev/backend.tf automatically.
+        # Downloads current state from S3 using OIDC role credentials.
+        # Prerequisite: S3 bucket and DynamoDB lock table must already exist (bootstrapped in Story 5.0).
+        run: cd infra/envs/dev && terraform init
+
       - name: Terraform Plan
         run: |
-          cd infra && terraform init && terraform plan -no-color 2>&1 | tee plan.txt
+          cd infra/envs/dev
+          terraform plan -no-color 2>&1 | tee plan.txt
 
       - name: Post plan to PR
         uses: actions/github-script@v7
         with:
           script: |
-            const plan = require('fs').readFileSync('infra/plan.txt', 'utf8')
+            const plan = require('fs').readFileSync('infra/envs/dev/plan.txt', 'utf8')
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
@@ -415,10 +466,14 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Terraform Init
+        # Reads S3 backend from infra/envs/dev/backend.tf automatically.
+        # Downloads current state from S3, acquires DynamoDB lock before apply.
+        run: cd infra/envs/dev && terraform init
+
       - name: Terraform Apply
         run: |
-          cd infra
-          terraform init
+          cd infra/envs/dev
           terraform apply -auto-approve -var="ecr_image_tag=${{ github.sha }}"
 ```
 
