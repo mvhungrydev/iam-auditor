@@ -1,0 +1,29 @@
+# Copy this file to terraform.tfvars and fill in your real values.
+# terraform.tfvars is gitignored and must never be committed.
+# This example file is the committed template — keep it up to date with variables.tf.
+
+aws_region            = "us-east-1"
+project_name          = "iam-auditor"
+
+# Your email address — you will receive a subscription confirmation after first terraform apply.
+# Lambda audit reports will not be delivered until you click the confirmation link.
+alert_email           = "your-email@example.com"
+
+# Days of inactivity before a credential or role is flagged (rules R06, R07).
+unused_days_threshold = 90
+
+# Image tag deployed to Lambda. "latest" is fine for local dev.
+# The CI/CD pipeline overrides this with the Git SHA: -var="ecr_image_tag=<sha>"
+ecr_image_tag         = "latest"
+
+# Your GitHub username or organization (e.g. "johndoe" or "my-org").
+# Used to scope the OIDC trust policy — only this repo can assume the CI/CD role.
+github_org            = "your-github-username"
+
+# GitHub repository name — usually "iam-auditor" unless you renamed it.
+github_repo           = "iam-auditor"
+
+# Set to true to create demo misconfigured IAM resources (triggers R03, R06, R07, R09, R10).
+# Set to false and re-run terraform apply to destroy them.
+# Never set to true in prod.
+create_demo_data      = true
