@@ -3,7 +3,7 @@
 resource "aws_iam_user" "no_mfa" {
   count = var.create_demo_data ? 1 : 0
   name  = "demo-no-mfa-user"
-  tags  = { Name = "demo-no-mfa-user", demo = "true", project = var.project_name }
+  tags  = { Name = "demo-no-mfa-user", demo = "true" }
 }
 
 resource "aws_iam_user_login_profile" "no_mfa" {
@@ -17,7 +17,7 @@ resource "aws_iam_user_login_profile" "no_mfa" {
 resource "aws_iam_user" "stale_key" {
   count = var.create_demo_data ? 1 : 0
   name  = "demo-stale-key-user"
-  tags  = { Name = "demo-stale-key-user", demo = "true", project = var.project_name }
+  tags  = { Name = "demo-stale-key-user", demo = "true" }
 }
 
 resource "aws_iam_access_key" "stale_key" {
@@ -52,7 +52,7 @@ resource "aws_iam_role" "wildcard_inline" {
     })
   }
 
-  tags = { Name = "demo-wildcard-inline-role", demo = "true", project = var.project_name }
+  tags = { Name = "demo-wildcard-inline-role", demo = "true" }
 }
 
 # ── R10 — Role with customer-managed wildcard policy ─────────────────────────
@@ -70,7 +70,7 @@ resource "aws_iam_role" "wildcard_managed" {
     }]
   })
 
-  tags = { Name = "demo-wildcard-managed-role", demo = "true", project = var.project_name }
+  tags = { Name = "demo-wildcard-managed-role", demo = "true" }
 }
 
 resource "aws_iam_policy" "wildcard_iam" {
@@ -86,7 +86,7 @@ resource "aws_iam_policy" "wildcard_iam" {
     }]
   })
 
-  tags = { demo = "true", project = var.project_name }
+  tags = { demo = "true" }
 }
 
 resource "aws_iam_role_policy_attachment" "wildcard_managed" {
@@ -110,5 +110,5 @@ resource "aws_iam_role" "unused" {
     }]
   })
 
-  tags = { Name = "demo-unused-role", demo = "true", project = var.project_name }
+  tags = { Name = "demo-unused-role", demo = "true" }
 }

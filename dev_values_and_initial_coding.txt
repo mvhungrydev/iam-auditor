@@ -22,3 +22,20 @@ curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d
 brew install trivy
 
 trivy image --severity CRITICAL,HIGH --ignore-unfixed iam-auditor-lambdaa
+
+install localstack system wide to test terraform without deplyment to aws 
+  pip3 install localstack terraform-local awscli-local            
+for macos
+brew install pipx
+  pipx ensurepath                                                 
+  pipx install localstack                                         
+  pipx install terraform-local                                   
+  pipx install awscli-local 
+
+setup localstack
+ echo 'export LOCALSTACK_AUTH_TOKEN=your-token-here'>> ~/.zshrc 
+  source ~/.zshrc     
+  localstack start  
+  
+
+cd infra/envs/dev && tflocal init
