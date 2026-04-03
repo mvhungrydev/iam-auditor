@@ -604,18 +604,19 @@ _The env entrypoint calls all modules, passing outputs between them._
 
 **Tasks:**
 
-- [ ] Write `infra/envs/dev/versions.tf`: Terraform >= 1.6, AWS provider ~> 5.0
-- [ ] Write `infra/envs/dev/backend.tf`: S3 backend per `docs/04-infrastructure-spec.md §7`
+- [x] Write `infra/envs/dev/versions.tf`: Terraform >= 1.6, AWS provider ~> 5.0
+- [x] Write `infra/envs/dev/backend.tf`: S3 backend per `docs/04-infrastructure-spec.md §7`
   - Bucket: `iam-auditor-tf-state-<your_account_id>` (replace with actual account ID)
   - Key: `dev/terraform.tfstate`
   - DynamoDB lock table: `iam-auditor-tf-state-lock`
   - `encrypt = true`
   - **Note:** This file is safe to commit — it contains no secrets. The S3 bucket and DynamoDB lock table are bootstrapped manually in Story 5.0 before `terraform init` is ever run.
-- [ ] Write `infra/envs/dev/main.tf`: call all 7 modules, wire outputs (SNS ARN → SSM, etc.)
-- [ ] Write `infra/envs/dev/variables.tf`: expose `alert_email`, `aws_region`, `ecr_image_tag`, `unused_days_threshold`
-- [ ] Write `infra/envs/dev/terraform.tfvars`: set your email, region = `us-east-1`, threshold = `90`
-- [ ] Write `infra/envs/prod/backend.tf`: same bucket, key = `prod/terraform.tfstate`
-- [ ] Copy remaining `envs/dev/` structure to `envs/prod/` (placeholder — not deployed)
+- [x] Write `infra/envs/dev/main.tf`: call all 8 modules, wire outputs (SNS ARN → SSM, ECR URL + tag → Lambda, etc.)
+- [x] Write `infra/envs/dev/variables.tf`: expose `alert_email`, `aws_region`, `ecr_image_tag`, `unused_days_threshold`, `github_org`, `github_repo`, `create_demo_data`
+- [x] Write `infra/envs/dev/terraform.tfvars.example`: committed template (actual `terraform.tfvars` is gitignored — copy example and fill in real values locally)
+- [x] Write `infra/envs/dev/outputs.tf`: `lambda_function_name`, `lambda_function_arn`, `ecr_repository_url`, `cicd_role_arn`, `dynamodb_table_name`, `sns_topic_arn`, `vpc_id`
+- [x] Write `infra/envs/prod/backend.tf`: same bucket, key = `prod/terraform.tfstate`
+- [x] Copy remaining `envs/dev/` structure to `envs/prod/` (placeholder — not deployed, `create_demo_data` defaults to false)
 
 **LocalStack smoke test (run after all modules are wired):**
 

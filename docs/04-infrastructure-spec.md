@@ -368,6 +368,68 @@ When GitHub Actions calls `terraform init` and `terraform apply`, it uses the OI
 
 ---
 
+## 9. Module Outputs Reference
+
+These are the outputs each module exposes. Used when wiring modules together in `envs/dev/main.tf` (e.g., `module.vpc.vpc_id`).
+
+### vpc
+
+| Output | Description | Consumer |
+|--------|-------------|----------|
+| `vpc_id` | VPC ID | Lambda security group, VPC endpoints |
+| `public_subnet_id` | Public subnet ID | (reserved — not currently used) |
+| `private_subnet_id` | Private subnet ID | Lambda function placement |
+| `private_route_table_id` | Private route table ID | Gateway Endpoints (S3, DynamoDB) |
+
+### ecr
+
+| Output | Description | Consumer |
+|--------|-------------|----------|
+| `repository_url` | Full ECR image URL | CI/CD image push; Lambda `image_uri` |
+| `repository_arn` | ECR repository ARN | Lambda execution role IAM policy |
+
+### iam
+
+| Output | Description | Consumer |
+|--------|-------------|----------|
+| `lambda_role_arn` | Lambda execution role ARN | Lambda module (`role_arn`) |
+| `cicd_role_arn` | GitHub Actions OIDC role ARN | CI/CD pipeline spec reference |
+
+### dynamodb
+
+| Output | Description | Consumer |
+|--------|-------------|----------|
+| `table_name` | DynamoDB table name | SSM module (stored as parameter value) |
+| `table_arn` | DynamoDB table ARN | Lambda execution role IAM policy scoping |
+
+### sns
+
+| Output | Description | Consumer |
+|--------|-------------|----------|
+| `topic_arn` | SNS topic ARN | SSM module (stored as parameter value) |
+
+### ssm
+
+| Output | Description | Consumer |
+|--------|-------------|----------|
+| `parameter_arns` | Map of all SSM parameter ARNs | Lambda execution role IAM policy scoping |
+
+### lambda
+
+| Output | Description | Consumer |
+|--------|-------------|----------|
+| `function_arn` | Lambda function ARN | EventBridge target; general reference |
+| `function_name` | Lambda function name | CloudWatch log group naming; CLI invocations |
+
+### demo-data
+
+| Output | Description | Consumer |
+|--------|-------------|----------|
+| `demo_user_arns` | ARNs of demo IAM users (null if disabled) | Dev validation / reference only |
+| `demo_role_arns` | ARNs of demo IAM roles (null if disabled) | Dev validation / reference only |
+
+---
+
 ## 8. Tagging Strategy
 
 All resources tagged consistently for cost tracking and identification:
