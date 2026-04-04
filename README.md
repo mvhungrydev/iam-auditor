@@ -344,6 +344,7 @@ To remove demo resources: set `create_demo_data = false` and run `terraform appl
 | [06 — Development Plan](docs/06-development-plan.md) | Sequenced stories and tasks (phases 1–6) |
 | [07 — Future Enhancements](docs/07-future-enhancements.md) | Roadmap and planned improvements |
 | [08 — Pytest Guide](docs/08-pytest-guide.md) | Test infrastructure, moto fixtures, TDD workflow, coverage gates |
+| [AWS CLI Query Guide](docs/awscli-query-guide.md) | `--query` JMESPath examples for every project resource against LocalStack |
 
 ---
 

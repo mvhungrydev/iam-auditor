@@ -39,3 +39,43 @@ setup localstack
   
 
 cd infra/envs/dev && tflocal init
+
+ tflocal apply -auto-approve \
+    -target=module.vpc \
+    -target=module.iam \
+    -target=module.dynamodb \
+    -target=module.sns \
+    -target=module.ssm \
+    -target=module.demo_data
+
+verify localstack resources
+awslocal ec2 describe-vpcs --query 'Vpcs[*].CidrBlock'
+awslocal dynamodb list-tables
+awslocal sns list-topics
+awslocal ssm get-parameter --name /iam-auditor/sns-topic-arn
+awslocal ssm get-parameter --name /iam-auditor/dynamodb-table-name
+awslocal ssm get-parameter --name /iam-auditor/unused-days-threshold
+
+stop localstack (wipes all state)
+localstack stop
+
+# ── Story 4.10 — Static Terraform + Python validation ────────────────────────
+# Run from infra/envs/dev/ — no AWS connection needed
+
+# 1. Download providers locally (-backend=false skips S3 backend init)
+terraform init -backend=false
+
+# 2. Validate all .tf files for syntax and wiring errors
+terraform validate
+
+# 3. Enforce canonical Terraform formatting (rewrites files in place)
+terraform fmt -recursive infra/
+
+# 4. Scan Terraform for security misconfigurations
+#    Install first (one-time): pipx install checkov
+checkov -d infra/ --framework terraform
+
+# 5. Static security analysis of Lambda Python source
+#    Run from project root
+#    -ll = MEDIUM+ severity, -ii = MEDIUM+ confidence
+bandit -r src/lambda/ -ll -ii
