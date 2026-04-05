@@ -1,3 +1,4 @@
+#checkov:skip=CKV_AWS_26:SNS KMS encryption not enabled — audit alert messages contain no sensitive data (only finding summaries); KMS would incur additional cost
 resource "aws_sns_topic" "this" {
   name = "${var.project_name}-alerts"
 

@@ -1,3 +1,4 @@
+#checkov:skip=CKV2_AWS_34:SSM parameters use String type intentionally — values are non-sensitive config (SNS ARN, DynamoDB table name, integer threshold); SecureString would require KMS CMK and additional cost
 resource "aws_ssm_parameter" "sns_topic_arn" {
   name        = "/iam-auditor/sns-topic-arn"
   type        = "String"
