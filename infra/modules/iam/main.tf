@@ -15,9 +15,9 @@ resource "aws_iam_role" "lambda" {
   tags = { Name = "${var.project_name}-lambda-role" }
 }
 
-#checkov:skip=CKV_AWS_290:Some IAM actions genuinely require Resource="*" — iam:GenerateCredentialReport, iam:ListRoles, ec2:DescribeNetworkInterfaces cannot be scoped to specific resources per AWS documentation
-#checkov:skip=CKV_AWS_355:Wildcard resources required for IAM read actions and VPC networking actions that do not support resource-level permissions
 resource "aws_iam_policy" "lambda" {
+  #checkov:skip=CKV_AWS_290:Some IAM actions genuinely require Resource="*" — iam:GenerateCredentialReport, iam:ListRoles, ec2:DescribeNetworkInterfaces cannot be scoped to specific resources per AWS documentation
+  #checkov:skip=CKV_AWS_355:Wildcard resources required for IAM read actions and VPC networking actions that do not support resource-level permissions
   name        = "${var.project_name}-lambda-policy"
   description = "Least-privilege policy for the IAM Auditor Lambda execution role"
 
@@ -150,14 +150,14 @@ resource "aws_iam_role" "cicd" {
   tags = { Name = "github-actions-${var.project_name}" }
 }
 
-#checkov:skip=CKV_AWS_288:CI/CD role requires broad Terraform provisioning permissions — scoped to project resources per design in docs/03-technical-design.md; least privilege is enforced at the Sid level
-#checkov:skip=CKV_AWS_290:CI/CD role requires broad Terraform provisioning permissions — Terraform actions cannot be scoped below Resource="*" for many AWS control-plane operations
-#checkov:skip=CKV_AWS_287:CI/CD role requires broad Terraform provisioning permissions — credential-exposure actions are required for Terraform to manage IAM resources during deploy
-#checkov:skip=CKV_AWS_289:CI/CD role requires broad Terraform provisioning permissions — permissions management actions are required for Terraform to create/update IAM roles and policies
-#checkov:skip=CKV_AWS_355:CI/CD role requires broad Terraform provisioning permissions — wildcard resources required for Terraform control-plane operations
-#checkov:skip=CKV_AWS_286:CI/CD role requires broad Terraform provisioning permissions — privilege escalation checks not applicable to a deployment role with documented scope
-#checkov:skip=CKV2_AWS_40:CI/CD role requires full IAM privileges for Terraform to manage IAM resources during deploy — this is intentional and documented in docs/03-technical-design.md
 resource "aws_iam_policy" "cicd" {
+  #checkov:skip=CKV_AWS_288:CI/CD role requires broad Terraform provisioning permissions — scoped to project resources per design in docs/03-technical-design.md
+  #checkov:skip=CKV_AWS_290:CI/CD role requires broad Terraform provisioning permissions — Terraform actions cannot be scoped below Resource="*" for many AWS control-plane operations
+  #checkov:skip=CKV_AWS_287:CI/CD role requires broad Terraform provisioning permissions — credential-exposure actions required for Terraform to manage IAM resources during deploy
+  #checkov:skip=CKV_AWS_289:CI/CD role requires broad Terraform provisioning permissions — permissions management actions required for Terraform to create/update IAM roles and policies
+  #checkov:skip=CKV_AWS_355:CI/CD role requires broad Terraform provisioning permissions — wildcard resources required for Terraform control-plane operations
+  #checkov:skip=CKV_AWS_286:CI/CD role requires broad Terraform provisioning permissions — privilege escalation checks not applicable to a deployment role with documented scope
+  #checkov:skip=CKV2_AWS_40:CI/CD role requires full IAM privileges for Terraform to manage IAM resources during deploy — intentional and documented in docs/03-technical-design.md
   name        = "github-actions-${var.project_name}-policy"
   description = "Permissions for GitHub Actions to deploy the IAM Auditor"
 

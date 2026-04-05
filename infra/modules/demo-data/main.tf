@@ -1,8 +1,8 @@
 # ── R03 — User with no MFA ────────────────────────────────────────────────────
 
-#checkov:skip=CKV_AWS_273:Demo IAM user required to trigger detection rule R03 — SSO is out of scope for this demo misconfiguration module
-#checkov:skip=CKV2_AWS_22:Demo IAM user requires console access (login profile) intentionally to trigger rule R03 (MFA not enabled)
 resource "aws_iam_user" "no_mfa" {
+  #checkov:skip=CKV_AWS_273:Demo IAM user required to trigger detection rule R03 — SSO is out of scope for this demo misconfiguration module
+  #checkov:skip=CKV2_AWS_22:Demo IAM user requires console access (login profile) intentionally to trigger rule R03 (MFA not enabled)
   count = var.create_demo_data ? 1 : 0
   name  = "demo-no-mfa-user"
   tags  = { Name = "demo-no-mfa-user", demo = "true" }
@@ -16,8 +16,8 @@ resource "aws_iam_user_login_profile" "no_mfa" {
 
 # ── R06 — User with stale access key ─────────────────────────────────────────
 
-#checkov:skip=CKV_AWS_273:Demo IAM user required to trigger detection rule R06 — SSO is out of scope for this demo misconfiguration module
 resource "aws_iam_user" "stale_key" {
+  #checkov:skip=CKV_AWS_273:Demo IAM user required to trigger detection rule R06 — SSO is out of scope for this demo misconfiguration module
   count = var.create_demo_data ? 1 : 0
   name  = "demo-stale-key-user"
   tags  = { Name = "demo-stale-key-user", demo = "true" }
@@ -76,12 +76,12 @@ resource "aws_iam_role" "wildcard_managed" {
   tags = { Name = "demo-wildcard-managed-role", demo = "true" }
 }
 
-#checkov:skip=CKV_AWS_287:Intentional wildcard iam:* policy to trigger detection rule R10 (customer-managed wildcard policy) — this is demo misconfiguration data
-#checkov:skip=CKV_AWS_289:Intentional wildcard iam:* policy to trigger detection rule R10 — this is demo misconfiguration data
-#checkov:skip=CKV_AWS_355:Intentional wildcard iam:* policy to trigger detection rule R10 — this is demo misconfiguration data
-#checkov:skip=CKV_AWS_286:Intentional wildcard iam:* policy to trigger detection rule R10 — this is demo misconfiguration data
-#checkov:skip=CKV2_AWS_40:Intentional full IAM privileges to trigger detection rule R10 — this is demo misconfiguration data
 resource "aws_iam_policy" "wildcard_iam" {
+  #checkov:skip=CKV_AWS_287:Intentional wildcard iam:* policy to trigger detection rule R10 — this is demo misconfiguration data
+  #checkov:skip=CKV_AWS_289:Intentional wildcard iam:* policy to trigger detection rule R10 — this is demo misconfiguration data
+  #checkov:skip=CKV_AWS_355:Intentional wildcard iam:* policy to trigger detection rule R10 — this is demo misconfiguration data
+  #checkov:skip=CKV_AWS_286:Intentional wildcard iam:* policy to trigger detection rule R10 — this is demo misconfiguration data
+  #checkov:skip=CKV2_AWS_40:Intentional full IAM privileges to trigger detection rule R10 — this is demo misconfiguration data
   count = var.create_demo_data ? 1 : 0
   name  = "demo-wildcard-iam-policy"
 

@@ -1,5 +1,5 @@
-#checkov:skip=CKV2_AWS_34:SSM parameters use String type intentionally — values are non-sensitive config (SNS ARN, DynamoDB table name, integer threshold); SecureString would require KMS CMK and additional cost
 resource "aws_ssm_parameter" "sns_topic_arn" {
+  #checkov:skip=CKV2_AWS_34:String type used intentionally — SNS ARN is non-sensitive config; SecureString would require KMS CMK and additional cost
   name        = "/iam-auditor/sns-topic-arn"
   type        = "String"
   tier        = "Standard"
@@ -8,6 +8,7 @@ resource "aws_ssm_parameter" "sns_topic_arn" {
 }
 
 resource "aws_ssm_parameter" "dynamodb_table_name" {
+  #checkov:skip=CKV2_AWS_34:String type used intentionally — DynamoDB table name is non-sensitive config; SecureString would require KMS CMK and additional cost
   name        = "/iam-auditor/dynamodb-table-name"
   type        = "String"
   tier        = "Standard"
@@ -16,6 +17,7 @@ resource "aws_ssm_parameter" "dynamodb_table_name" {
 }
 
 resource "aws_ssm_parameter" "unused_days_threshold" {
+  #checkov:skip=CKV2_AWS_34:String type used intentionally — integer threshold is non-sensitive config; SecureString would require KMS CMK and additional cost
   name        = "/iam-auditor/unused-days-threshold"
   type        = "String"
   tier        = "Standard"

@@ -1,6 +1,6 @@
-#checkov:skip=CKV2_AWS_12:Default VPC security group not managed by this module — requires a separate aws_default_security_group resource; out of scope for this project
-#checkov:skip=CKV2_AWS_11:VPC flow logging not enabled — flow logs incur CloudWatch storage costs; not justified for a free tier portfolio project
 resource "aws_vpc" "this" {
+  #checkov:skip=CKV2_AWS_12:Default VPC security group not managed by this module — requires a separate aws_default_security_group resource; out of scope for this project
+  #checkov:skip=CKV2_AWS_11:VPC flow logging not enabled — flow logs incur CloudWatch storage costs; not justified for a free tier portfolio project
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true

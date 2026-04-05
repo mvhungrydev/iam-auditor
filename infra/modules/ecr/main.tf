@@ -1,6 +1,6 @@
-#checkov:skip=CKV_AWS_136:KMS CMK not used — AES256 encryption is sufficient for a free tier portfolio project; KMS would incur additional cost
-#checkov:skip=CKV_AWS_51:Image tag mutability set to MUTABLE intentionally — CI/CD must overwrite the :latest tag on every deploy
 resource "aws_ecr_repository" "this" {
+  #checkov:skip=CKV_AWS_136:KMS CMK not used — AES256 encryption is sufficient for a free tier portfolio project; KMS would incur additional cost
+  #checkov:skip=CKV_AWS_51:Image tag mutability set to MUTABLE intentionally — CI/CD must overwrite the :latest tag on every deploy
   name                 = "${var.project_name}-lambda"
   image_tag_mutability = "MUTABLE"
 
