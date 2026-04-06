@@ -660,13 +660,13 @@ _Catch all config errors before any AWS calls._
 
 **Tasks:**
 
-- [ ] Run `terraform init` from `infra/envs/dev/` (downloads providers locally — no AWS auth needed)
-- [ ] Run `terraform validate` — fix all errors
-- [ ] Run `terraform fmt -recursive infra/` — enforce formatting
-- [ ] Run `checkov -d infra/ --framework terraform` locally:
-  - Install: `pip install checkov` (add to `requirements-dev.txt`)
-  - Address or suppress each finding with documented justification
-- [ ] Run `bandit -r src/lambda/ -ll -ii` locally — fix any findings
+- [x] Run `terraform init -backend=false` from `infra/envs/dev/` (downloads providers locally — no AWS auth needed)
+- [x] Run `terraform validate` — Success, 1 deprecation warning on inline_policy (known, acceptable)
+- [x] Run `terraform fmt -recursive infra/` — reformatted terraform.tfvars, all other files clean
+- [x] Run `checkov -d infra/ --framework terraform` locally:
+  - Install: `pipx install checkov`
+  - 69 passed, 0 failed, 34 suppressed — all suppressions documented with justification inside resource blocks
+- [x] Run `bandit -r src/lambda/ -ll -ii` locally — 0 issues across 623 lines
 
 **Done when:** `validate` passes, `checkov` passes (or all suppressions are documented), `bandit` clean.
 
@@ -698,10 +698,10 @@ It lives in its own module so it can be applied and destroyed independently — 
 
 **Tasks:**
 
-- [ ] Create `infra/modules/demo-data/` with `main.tf`, `variables.tf`, `outputs.tf`
-- [ ] Write demo IAM users, roles, and policies per the table above
-- [ ] Add `create_demo_data` variable to `infra/envs/dev/variables.tf` and `terraform.tfvars`
-- [ ] Call the module conditionally from `infra/envs/dev/main.tf` using `count = var.create_demo_data ? 1 : 0`
+- [x] Create `infra/modules/demo-data/` with `main.tf`, `variables.tf`, `outputs.tf`
+- [x] Write demo IAM users, roles, and policies per the table above
+- [x] Add `create_demo_data` variable to `infra/envs/dev/variables.tf` and `terraform.tfvars.example`
+- [x] Call the module conditionally from `infra/envs/dev/main.tf` using `count = var.create_demo_data ? 1 : 0`
 
 **Done when:** `terraform apply` creates all 5 demo resources and a Lambda run produces at least 5 findings across R03, R06, R07, R09, R10.
 

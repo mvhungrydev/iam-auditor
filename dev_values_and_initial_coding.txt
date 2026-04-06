@@ -31,6 +31,8 @@ brew install pipx
   pipx install localstack                                         
   pipx install terraform-local                                   
   pipx install awscli-local 
+pipx install checkov     
+pipx install bandit                                                                   
 
 setup localstack
  echo 'export LOCALSTACK_AUTH_TOKEN=your-token-here'>> ~/.zshrc 
