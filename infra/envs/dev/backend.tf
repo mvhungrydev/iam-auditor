@@ -4,7 +4,7 @@ terraform {
     # This file is safe to commit — it contains no secrets.
     # The S3 bucket and DynamoDB lock table must already exist before running terraform init.
     # See docs/04-infrastructure-spec.md §7 for bootstrap commands.
-    bucket         = "iam-auditor-tf-state-000000000000"
+    bucket         = "iam-auditor-tf-state-548931596025"
     key            = "dev/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "iam-auditor-tf-state-lock"
