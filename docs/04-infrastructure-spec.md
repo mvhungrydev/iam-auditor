@@ -216,9 +216,11 @@ The DynamoDB lock table solves a second problem: concurrent `apply` operations (
 | Resource | AWS Service | Name | Notes |
 |----------|-------------|------|-------|
 | State file storage | S3 | `iam-auditor-tf-state-<account_id>` | Versioning + AES-256 encryption + public access blocked |
-| State lock table | DynamoDB | `iam-auditor-tf-state-lock` | `LockID` (String) as partition key, PAY_PER_REQUEST billing |
+| State lock file | S3 (native) | `dev/terraform.tfstate.tflock` | Written alongside the state file — no DynamoDB needed (Terraform 1.10+ `use_lockfile = true`) |
 
-> **Important:** These two resources are **not managed by Terraform**. They must exist before `terraform init` can run. This is the Terraform bootstrapping paradox: Terraform needs a backend to store state, but it cannot create that backend using itself. They are created once with AWS CLI (see bootstrap commands below) and never destroyed — deleting them would orphan all Terraform state.
+> **Important:** The S3 bucket is **not managed by Terraform**. It must exist before `terraform init` can run. This is the Terraform bootstrapping paradox: Terraform needs a backend to store state, but it cannot create that backend using itself. It is created once with AWS CLI (see bootstrap commands below) and never destroyed — deleting it would orphan all Terraform state.
+>
+> **Note on DynamoDB locking:** Terraform 1.10+ introduced native S3 locking via `use_lockfile = true`, which stores a `.tflock` file in S3 alongside the state file. This replaces the older `dynamodb_table` parameter (now deprecated). No DynamoDB table is required for state locking.
 
 ---
 
@@ -256,27 +258,16 @@ aws s3api put-public-access-block \
   --public-access-block-configuration \
     "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
 
-# 5. Create the DynamoDB state lock table
-#    LockID is the conventional partition key name used by the Terraform S3 backend
-aws dynamodb create-table \
-  --table-name iam-auditor-tf-state-lock \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region us-east-1
-
-# 6. Verify both resources exist before proceeding
+# 5. Verify the bucket exists before proceeding
 aws s3 ls | grep iam-auditor-tf-state
-aws dynamodb describe-table \
-  --table-name iam-auditor-tf-state-lock \
-  --query 'Table.TableStatus'
 ```
 
-Expected output of step 6:
+Expected output:
 ```
 2026-xx-xx xx:xx:xx  iam-auditor-tf-state-<account_id>
-"ACTIVE"
 ```
+
+> **Note:** No DynamoDB table is needed. Terraform 1.10+ uses `use_lockfile = true` in the S3 backend, which stores a `.tflock` file in S3 for state locking. This is simpler and cheaper than the older `dynamodb_table` approach.
 
 ---
 
