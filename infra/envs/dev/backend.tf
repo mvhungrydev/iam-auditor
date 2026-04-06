@@ -7,7 +7,7 @@ terraform {
     bucket         = "iam-auditor-tf-state-548931596025"
     key            = "dev/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "iam-auditor-tf-state-lock"
+    use_lockfile   = true
     encrypt        = true
   }
 }
