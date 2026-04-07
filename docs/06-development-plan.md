@@ -724,28 +724,28 @@ _Resources that Terraform cannot create for itself — must exist before `terraf
 
 **Tasks:**
 
-- [ ] Confirm your AWS CLI identity and capture your account ID:
+- [x] Confirm your AWS CLI identity and capture your account ID:
   ```bash
   aws sts get-caller-identity
   ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
   echo "Account ID: ${ACCOUNT_ID}"
   ```
 
-- [ ] Create the S3 state bucket — name must be globally unique; account ID ensures this:
+- [x] Create the S3 state bucket — name must be globally unique; account ID ensures this:
   ```bash
   aws s3api create-bucket \
     --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
     --region us-east-1
   ```
 
-- [ ] Enable versioning — allows state recovery if a file is accidentally overwritten:
+- [x] Enable versioning — allows state recovery if a file is accidentally overwritten:
   ```bash
   aws s3api put-bucket-versioning \
     --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
     --versioning-configuration Status=Enabled
   ```
 
-- [ ] Enable AES-256 server-side encryption — state files contain resource ARNs and config values:
+- [x] Enable AES-256 server-side encryption — state files contain resource ARNs and config values:
   ```bash
   aws s3api put-bucket-encryption \
     --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
@@ -758,7 +758,7 @@ _Resources that Terraform cannot create for itself — must exist before `terraf
     }'
   ```
 
-- [ ] Block all public access — state files must never be publicly readable:
+- [x] Block all public access — state files must never be publicly readable:
   ```bash
   aws s3api put-public-access-block \
     --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
@@ -766,7 +766,7 @@ _Resources that Terraform cannot create for itself — must exist before `terraf
       "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
   ```
 
-- [ ] Create the DynamoDB state lock table — prevents concurrent `apply` operations from corrupting state:
+- [x] Create the DynamoDB state lock table — prevents concurrent `apply` operations from corrupting state:
   ```bash
   aws dynamodb create-table \
     --table-name iam-auditor-tf-state-lock \
@@ -777,7 +777,7 @@ _Resources that Terraform cannot create for itself — must exist before `terraf
   ```
   > `LockID` is the partition key name the Terraform S3 backend expects. PAY_PER_REQUEST billing keeps this within free tier — the table has very low write volume (one lock/unlock per apply).
 
-- [ ] Verify both resources exist and are ready:
+- [x] Verify both resources exist and are ready:
   ```bash
   aws s3 ls | grep iam-auditor-tf-state
   aws dynamodb describe-table \
@@ -786,7 +786,7 @@ _Resources that Terraform cannot create for itself — must exist before `terraf
   ```
   Expected: bucket name appears in S3 list, DynamoDB status = `"ACTIVE"`
 
-- [ ] Update `infra/envs/dev/backend.tf` — replace `<your_account_id>` with your actual account ID:
+- [x] Update `infra/envs/dev/backend.tf` — replace `<your_account_id>` with your actual account ID:
   ```bash
   echo "Your account ID is: ${ACCOUNT_ID}"
   # Open infra/envs/dev/backend.tf and replace the placeholder
@@ -802,18 +802,20 @@ _Resources that Terraform can't create itself (the bootstrapping paradox) — co
 
 **Tasks:**
 
-- [ ] Verify IAM Access Analyzer is enabled in `us-east-1` (console → Security → IAM Access Analyzer)
-  - If not enabled: console → Security → IAM Access Analyzer → Create analyzer → Account type → Create
-- [ ] Run `terraform init` from `infra/envs/dev/` to verify the S3 backend is reachable:
+- [x] Verify IAM Access Analyzer is enabled in `us-east-1` (console → Security → IAM Access Analyzer)
+  - If not enabled: `aws accessanalyzer create-analyzer --analyzer-name iam-auditor-analyzer --type ACCOUNT --region us-east-1`
+- [x] Run `terraform init` from `infra/envs/dev/` to verify the S3 backend is reachable:
   ```bash
   cd infra/envs/dev && terraform init
   ```
   Expected: `Successfully configured the backend "s3"!` — confirms Story 5.0 bootstrap succeeded.
-- [ ] Run `terraform apply -target=module.ecr` first to create the ECR repo before pushing the Lambda image:
+- [x] Run `terraform apply -target=module.ecr` first to create the ECR repo before pushing the Lambda image:
   ```bash
   terraform apply -target=module.ecr
   ```
   > ECR must exist before the Docker push in Story 5.2. Targeting a single module avoids trying to create Lambda before the image exists.
+
+**Done when:** IAM Access Analyzer is ACTIVE, `terraform init` confirms S3 backend is reachable, and ECR repo exists. ✅
 
 ---
 
@@ -821,17 +823,19 @@ _Resources that Terraform can't create itself (the bootstrapping paradox) — co
 
 **Tasks:**
 
-- [ ] Authenticate Docker to ECR:
+- [x] Authenticate Docker to ECR:
   ```bash
   aws ecr get-login-password --region us-east-1 | \
     docker login --username AWS --password-stdin <account_id>.dkr.ecr.us-east-1.amazonaws.com
   ```
-- [ ] Build + tag + push:
+- [x] Build + tag + push:
   ```bash
   docker build -t iam-auditor-lambda src/lambda/
   docker tag iam-auditor-lambda:latest <ecr_url>:latest
   docker push <ecr_url>:latest
   ```
+
+**Done when:** Image appears in ECR with `latest` tag. ✅ (OCI image index + platform manifest + attestation manifest — all 3 entries are expected and correct)
 
 ---
 
