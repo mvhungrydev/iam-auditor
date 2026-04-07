@@ -830,12 +830,13 @@ _Resources that Terraform can't create itself (the bootstrapping paradox) — co
   ```
 - [x] Build + tag + push:
   ```bash
-  docker build -t iam-auditor-lambda src/lambda/
+  docker build --platform linux/amd64 --provenance=false -t iam-auditor-lambda src/lambda/
   docker tag iam-auditor-lambda:latest <ecr_url>:latest
   docker push <ecr_url>:latest
   ```
+  > **Note:** `--platform linux/amd64` targets Lambda's runtime architecture. `--provenance=false` disables the BuildKit attestation manifest — without it, Docker pushes an OCI image index which Lambda does not support (`InvalidParameterValueException: image manifest media type not supported`).
 
-**Done when:** Image appears in ECR with `latest` tag. ✅ (OCI image index + platform manifest + attestation manifest — all 3 entries are expected and correct)
+**Done when:** Image appears in ECR as a single `vnd.oci.image.manifest.v1+json` entry with `latest` tag. ✅
 
 ---
 
@@ -843,9 +844,13 @@ _Resources that Terraform can't create itself (the bootstrapping paradox) — co
 
 **Tasks:**
 
-- [ ] `cd infra/envs/dev && terraform apply`
-- [ ] Confirm all resources created: VPC, subnets, endpoints, DynamoDB, SNS, SSM, Lambda, EventBridge
-- [ ] Check email inbox for SNS subscription confirmation — click the link
+- [x] `cd infra/envs/dev && terraform apply`
+- [x] Confirm all resources created: VPC, subnets, endpoints, DynamoDB, SNS, SSM, Lambda, EventBridge
+  > 3 resources added on final apply (Lambda function, EventBridge permission, EventBridge target). All prior resources already existed from `-target=module.ecr` and earlier runs.
+- [x] Check email inbox for SNS subscription confirmation — click the link
+
+**Done when:** `Apply complete! Resources: 3 added, 0 changed, 0 destroyed.` and all outputs populated. ✅
+> Note: `inline_policy` deprecation warning in `module.demo_data` — non-blocking, does not affect functionality.
 
 ---
 

@@ -128,3 +128,9 @@ Verify both resources are ready:
   aws dynamodb describe-table \                    
     --table-name iam-auditor-tf-state-lock \        
     --query 'Table.TableStatus'      
+
+create access analyzers
+aws accessanalyzer create-analyzer \
+--analyzer-name iam-auditor-analyzer \
+--type ACCOUNT \
+--region us-east-1

@@ -1,6 +1,6 @@
 resource "aws_security_group" "lambda" {
   name        = "${var.project_name}-lambda-sg"
-  description = "Lambda security group — no inbound, HTTPS egress only"
+  description = "Lambda security group - no inbound, HTTPS egress only"
   vpc_id      = var.vpc_id
 
   egress {
