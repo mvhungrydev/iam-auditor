@@ -16,8 +16,8 @@ resource "aws_iam_role" "lambda" {
 }
 
 resource "aws_iam_policy" "lambda" {
-  #checkov:skip=CKV_AWS_290:Some IAM actions genuinely require Resource="*" — iam:GenerateCredentialReport, iam:ListRoles, ec2:DescribeNetworkInterfaces cannot be scoped to specific resources per AWS documentation
-  #checkov:skip=CKV_AWS_355:Wildcard resources required for IAM read actions and VPC networking actions that do not support resource-level permissions
+  #checkov:skip=CKV_AWS_290:Some IAM actions genuinely require Resource="*" — iam:GenerateCredentialReport, iam:ListRoles cannot be scoped to specific resources per AWS documentation
+  #checkov:skip=CKV_AWS_355:Wildcard resources required for IAM read actions that do not support resource-level permissions
   name        = "${var.project_name}-lambda-policy"
   description = "Least-privilege policy for the IAM Auditor Lambda execution role"
 
@@ -85,16 +85,6 @@ resource "aws_iam_policy" "lambda" {
         Effect   = "Allow"
         Action   = "ssm:GetParameter"
         Resource = "arn:aws:ssm:*:*:parameter/iam-auditor/*"
-      },
-      {
-        Sid    = "VPCNetworking"
-        Effect = "Allow"
-        Action = [
-          "ec2:CreateNetworkInterface",
-          "ec2:DescribeNetworkInterfaces",
-          "ec2:DeleteNetworkInterface"
-        ]
-        Resource = "*"
       },
       {
         Sid    = "CloudWatchLogs"

@@ -76,9 +76,12 @@ module "ssm" {
 
 # -----------------------------------------------------------------------------
 # Lambda
-# Creates the Lambda function (container image from ECR), its security group
-# (no inbound, HTTPS egress), the CloudWatch log group, and the EventBridge
-# rule that fires every Monday at 08:00 UTC.
+# Creates the Lambda function (container image from ECR), the CloudWatch log
+# group, and the EventBridge rule that fires every Monday at 08:00 UTC.
+#
+# Lambda is not placed in the VPC — it only calls public AWS APIs (SSM, IAM,
+# DynamoDB, SNS, Access Analyzer). VPC placement would require Interface
+# Endpoints (~$18/month) with no security benefit for this workload.
 #
 # image_uri is constructed from the ECR repository URL + the image tag variable.
 # In local dev: ecr_image_tag = "latest"
@@ -86,12 +89,10 @@ module "ssm" {
 # -----------------------------------------------------------------------------
 module "lambda" {
   source          = "../../modules/lambda"
-  vpc_id          = module.vpc.vpc_id
-  subnet_id       = module.vpc.private_subnet_id
   lambda_role_arn = module.iam.lambda_role_arn
   image_uri       = "${module.ecr.repository_url}:${var.ecr_image_tag}"
   project_name    = var.project_name
-  depends_on      = [module.vpc, module.iam, module.ecr]
+  depends_on      = [module.iam, module.ecr]
 }
 
 # -----------------------------------------------------------------------------

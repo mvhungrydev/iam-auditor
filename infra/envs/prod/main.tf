@@ -41,12 +41,11 @@ module "ssm" {
 
 module "lambda" {
   source          = "../../modules/lambda"
-  vpc_id          = module.vpc.vpc_id
-  subnet_id       = module.vpc.private_subnet_id
   lambda_role_arn = module.iam.lambda_role_arn
   image_uri       = "${module.ecr.repository_url}:${var.ecr_image_tag}"
+  project_name    = var.project_name
 
-  depends_on = [module.vpc, module.iam, module.ecr]
+  depends_on = [module.iam, module.ecr]
 }
 
 # Demo data is disabled in prod — create_demo_data defaults to false in prod variables.tf.

@@ -84,7 +84,7 @@ This project directly demonstrates the skills listed in the target job descripti
 | Python scripting | Boto3-based handler calling multiple AWS APIs |
 | CloudWatch / monitoring | Lambda execution metrics, EventBridge scheduling |
 | Container technologies | Lambda deployed as Docker container via ECR |
-| VPC networking | Lambda in private subnet with Gateway VPC Endpoints |
+| VPC networking | VPC with public/private subnets and Gateway VPC Endpoints (S3, DynamoDB) |
 | Security best practices | OIDC auth in CI/CD, no long-lived keys, least-privilege IAM |
 
 ---

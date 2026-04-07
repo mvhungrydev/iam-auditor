@@ -79,7 +79,6 @@ infra/
 | ECR Lifecycle Policy | `aws_ecr_lifecycle_policy` | ecr | Keep last 3 images |
 | Lambda Execution Role | `aws_iam_role` | iam | Least-privilege policy |
 | Lambda IAM Policy | `aws_iam_policy` | iam | See Technical Design doc |
-| Lambda Security Group | `aws_security_group` | lambda | No inbound, HTTPS egress |
 | Lambda Function | `aws_lambda_function` | lambda | Container image from ECR |
 | EventBridge Rule | `aws_cloudwatch_event_rule` | lambda | cron(0 8 ? * MON *) |
 | EventBridge Target | `aws_cloudwatch_event_target` | lambda | Target = Lambda ARN |
@@ -367,9 +366,9 @@ These are the outputs each module exposes. Used when wiring modules together in 
 
 | Output | Description | Consumer |
 |--------|-------------|----------|
-| `vpc_id` | VPC ID | Lambda security group, VPC endpoints |
+| `vpc_id` | VPC ID | VPC endpoints |
 | `public_subnet_id` | Public subnet ID | (reserved — not currently used) |
-| `private_subnet_id` | Private subnet ID | Lambda function placement |
+| `private_subnet_id` | Private subnet ID | (reserved — not currently consumed) |
 | `private_route_table_id` | Private route table ID | Gateway Endpoints (S3, DynamoDB) |
 
 ### ecr

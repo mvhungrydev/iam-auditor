@@ -73,8 +73,7 @@
 ```
 Step 1:  EventBridge cron fires every Monday 08:00 UTC
               │
-Step 2:  Lambda container starts (ECR image pull from private subnet
-         via ECR API — no public internet needed for Lambda invoke)
+Step 2:  Lambda container starts (ECR image pull via public ECR API)
               │
 Step 3:  Lambda reads config from SSM Parameter Store
          - /iam-auditor/sns-topic-arn
@@ -190,19 +189,14 @@ VPC: 10.0.0.0/16
 │   └── (reserved for future use — no resources deployed here for this project)
 │
 └── Private Subnet: 10.0.2.0/24  (AZ: us-east-1a)
-    └── Lambda function (VPC-attached)
-        └── Security Group: iam-auditor-lambda-sg
-            ├── Inbound:  NONE (Lambda is invoked by EventBridge, not network)
-            └── Outbound: HTTPS (443) to 0.0.0.0/0
-                         (needed for IAM + SSM API calls — these are
-                          AWS-managed endpoints not reachable via Gateway endpoints)
+    └── (reserved for future use — Lambda is not VPC-attached)
 
 Gateway VPC Endpoints (attached to private subnet route table):
 ├── com.amazonaws.us-east-1.s3        → free, routes S3 traffic privately
 └── com.amazonaws.us-east-1.dynamodb  → free, routes DynamoDB traffic privately
 ```
 
-**Note on IAM/SSM API calls:** IAM and SSM APIs are global/regional endpoints not reachable via Gateway VPC Endpoints. The Lambda security group allows HTTPS egress so these API calls can route through the VPC's internet-less path via AWS PrivateLink defaults. No NAT Gateway is needed — Lambda in a VPC with HTTPS egress can reach AWS service endpoints directly.
+**Note on Lambda VPC placement:** Lambda is not placed in the VPC. It calls only public AWS APIs (SSM, IAM, DynamoDB, SNS, Access Analyzer). Placing Lambda in a VPC would require VPC Interface Endpoints for each of these services (~$18/month) with no security benefit — the IAM execution role is the security boundary. The VPC and subnets remain provisioned for potential future use.
 
 ---
 
@@ -279,16 +273,6 @@ Lambda execution role policy — only the minimum actions required.
       "Effect": "Allow",
       "Action": "ssm:GetParameter",
       "Resource": "arn:aws:ssm:*:*:parameter/iam-auditor/*"
-    },
-    {
-      "Sid": "VPCNetworking",
-      "Effect": "Allow",
-      "Action": [
-        "ec2:CreateNetworkInterface",
-        "ec2:DescribeNetworkInterfaces",
-        "ec2:DeleteNetworkInterface"
-      ],
-      "Resource": "*"
     },
     {
       "Sid": "CloudWatchLogs",
