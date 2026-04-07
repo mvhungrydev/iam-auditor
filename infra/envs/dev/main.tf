@@ -90,8 +90,8 @@ module "lambda" {
   subnet_id       = module.vpc.private_subnet_id
   lambda_role_arn = module.iam.lambda_role_arn
   image_uri       = "${module.ecr.repository_url}:${var.ecr_image_tag}"
-
-  depends_on = [module.vpc, module.iam, module.ecr]
+  project_name    = var.project_name
+  depends_on      = [module.vpc, module.iam, module.ecr]
 }
 
 # -----------------------------------------------------------------------------

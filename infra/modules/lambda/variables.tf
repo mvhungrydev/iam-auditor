@@ -17,3 +17,7 @@ variable "image_uri" {
   type        = string
   description = "ECR image URI (repo:tag) — set in terraform.tfvars after the image is pushed"
 }
+variable "project_name" {
+  type        = string
+  description = "Used for resource naming and tagging"
+}
