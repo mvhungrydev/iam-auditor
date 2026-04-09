@@ -1,0 +1,33 @@
+# ── SG destroy debug ──────────────────────────────────────────────────────────
+
+# Check Lambda function state
+aws lambda get-function --function-name iam-auditor \
+  --query 'Configuration.{State:State,StateReason:StateReason}' \
+  --output table
+
+# List ENIs still attached to the Lambda SG
+aws ec2 describe-network-interfaces \
+  --filters "Name=group-id,Values=sg-042daa2f2a5a91e2f" \
+  --query 'NetworkInterfaces[*].{ID:NetworkInterfaceId,Status:Status,Desc:Description}' \
+  --output table
+
+# Force-delete a stuck ENI (replace <eni-id> with ID from above)
+aws ec2 delete-network-interface --network-interface-id <eni-id>
+
+# ── Story 5.4 — Manual Lambda invocation ─────────────────────────────────────
+
+# Invoke Lambda and capture response
+aws lambda invoke \
+  --function-name iam-auditor \
+  --payload '{}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json && cat response.json
+
+# Tail CloudWatch logs live
+aws logs tail /aws/lambda/iam-auditor --follow
+
+# Scan DynamoDB for findings
+aws dynamodb scan \
+  --table-name iam-audit-findings \
+  --query 'Items[*].{run_id:run_id.S,rule:rule_id.S,severity:severity.S,resource:resource_arn.S}' \
+  --output table
