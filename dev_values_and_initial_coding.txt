@@ -134,3 +134,22 @@ aws accessanalyzer create-analyzer \
 --analyzer-name iam-auditor-analyzer \
 --type ACCOUNT \
 --region us-east-1
+
+# ── Story 5.4 — Manual Lambda invocation test ─────────────────────────────────
+
+# Task 1 — Invoke the Lambda (run this first)
+aws lambda invoke \
+  --function-name iam-auditor \
+  --region us-east-1 \
+  --payload '{}' \
+  response.json && cat response.json
+
+# Task 2 — Tail CloudWatch Logs (run in a separate terminal before invoking)
+aws logs tail /aws/lambda/iam-auditor --follow --region us-east-1
+
+# Task 3 — Scan DynamoDB for findings
+aws dynamodb scan \
+  --table-name iam-audit-findings \
+  --region us-east-1
+
+# Task 4 — Check email inbox for SNS report from iam-auditor-alerts topic

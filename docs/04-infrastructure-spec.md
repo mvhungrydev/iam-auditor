@@ -24,7 +24,7 @@ infra/
 │   │   ├── main.tf
 │   │   ├── variables.tf
 │   │   └── outputs.tf
-│   ├── lambda/                 ← Lambda function (container), security group
+│   ├── lambda/                 ← Lambda function (container), CloudWatch log group, EventBridge rule
 │   │   ├── main.tf
 │   │   ├── variables.tf
 │   │   └── outputs.tf
@@ -275,11 +275,11 @@ Expected output:
 ```hcl
 terraform {
   backend "s3" {
-    bucket         = "iam-auditor-tf-state-<your_account_id>"  # replace with actual account ID
-    key            = "dev/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "iam-auditor-tf-state-lock"
-    encrypt        = true
+    bucket       = "iam-auditor-tf-state-<your_account_id>"  # replace with actual account ID
+    key          = "dev/terraform.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true   # Terraform 1.10+ native S3 locking — no DynamoDB table needed
+    encrypt      = true
   }
 }
 ```
@@ -289,11 +289,11 @@ terraform {
 ```hcl
 terraform {
   backend "s3" {
-    bucket         = "iam-auditor-tf-state-<your_account_id>"  # same bucket, different key
-    key            = "prod/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "iam-auditor-tf-state-lock"
-    encrypt        = true
+    bucket       = "iam-auditor-tf-state-<your_account_id>"  # same bucket, different key
+    key          = "prod/terraform.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true   # Terraform 1.10+ native S3 locking — no DynamoDB table needed
+    encrypt      = true
   }
 }
 ```
@@ -304,16 +304,16 @@ terraform {
 
 ### Why S3 Key Separation Matters
 
-Both environments share the same S3 bucket and DynamoDB lock table, but use **separate state keys**. This means:
+Both environments share the same S3 bucket but use **separate state keys**. This means:
 
-| Environment | S3 Key | Isolated From |
-|-------------|--------|---------------|
-| dev | `dev/terraform.tfstate` | Prod state, prod resources |
-| prod | `prod/terraform.tfstate` | Dev state, dev resources |
+| Environment | S3 Key | Lock File | Isolated From |
+|-------------|--------|-----------|---------------|
+| dev | `dev/terraform.tfstate` | `dev/terraform.tfstate.tflock` | Prod state, prod resources |
+| prod | `prod/terraform.tfstate` | `prod/terraform.tfstate.tflock` | Dev state, dev resources |
 
 Running `terraform apply` in `envs/dev/` reads and writes only `dev/terraform.tfstate`. It has no knowledge of prod resources. A failed dev apply cannot affect prod infrastructure. This is the core benefit of the `envs/` directory pattern combined with per-environment backend keys.
 
-The DynamoDB lock also scopes per key — a dev apply and a prod apply can run simultaneously without conflict because they acquire different lock entries (`dev/terraform.tfstate` vs `prod/terraform.tfstate`).
+The S3 lock file also scopes per key — a dev apply and a prod apply can run simultaneously without conflict because they write different `.tflock` files (`dev/terraform.tfstate.tflock` vs `prod/terraform.tfstate.tflock`).
 
 ---
 
@@ -334,27 +334,17 @@ When GitHub Actions calls `terraform init` and `terraform apply`, it uses the OI
     "arn:aws:s3:::iam-auditor-tf-state-<account_id>",
     "arn:aws:s3:::iam-auditor-tf-state-<account_id>/*"
   ]
-},
-{
-  "Effect": "Allow",
-  "Action": [
-    "dynamodb:GetItem",
-    "dynamodb:PutItem",
-    "dynamodb:DeleteItem"
-  ],
-  "Resource": "arn:aws:dynamodb:us-east-1:<account_id>:table/iam-auditor-tf-state-lock"
 }
 ```
 
 | Permission | When Used | Why |
 |------------|-----------|-----|
 | `s3:GetObject` | `terraform init`, `plan`, `apply` | Download current state file before computing diff |
-| `s3:PutObject` | `terraform apply` | Write updated state file after resources change |
-| `s3:DeleteObject` | `terraform state rm`, workspace operations | Remove state entries when resources are deleted |
+| `s3:PutObject` | `terraform apply` | Write updated state file and `.tflock` file after resources change |
+| `s3:DeleteObject` | Lock release, `terraform state rm` | Remove `.tflock` file after `apply` completes or fails |
 | `s3:ListBucket` | `terraform init` | Verify the bucket exists and the key path is accessible |
-| `dynamodb:GetItem` | Start of every `plan`/`apply` | Check if a lock already exists — block if yes |
-| `dynamodb:PutItem` | Acquiring lock | Write lock entry before modifying state |
-| `dynamodb:DeleteItem` | Releasing lock | Remove lock entry after `apply` completes or fails |
+
+> **No DynamoDB permissions needed for state locking.** Terraform 1.10+ `use_lockfile = true` stores the lock as a `.tflock` file in S3 alongside the state file. No DynamoDB table is required.
 
 ---
 

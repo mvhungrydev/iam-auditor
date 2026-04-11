@@ -167,9 +167,9 @@ For this project, GitHub Actions is the correct choice: it is free, credential-f
 > `checkov`, and the real `terraform plan` here provide equivalent coverage in CI.
 
 **How `terraform init` finds the S3 backend:**
-`infra/envs/dev/backend.tf` is committed to the repository and specifies the S3 bucket, key, region, and DynamoDB lock table. When `terraform init` runs in CI, it reads `backend.tf` automatically — no extra flags or environment variables are needed. The OIDC role credentials already in the environment (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` set by `configure-aws-credentials`) give Terraform the access it needs to reach S3 and DynamoDB.
+`infra/envs/dev/backend.tf` is committed to the repository and specifies the S3 bucket, key, region, and `use_lockfile = true`. When `terraform init` runs in CI, it reads `backend.tf` automatically — no extra flags or environment variables are needed. The OIDC role credentials already in the environment (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` set by `configure-aws-credentials`) give Terraform the access it needs to reach S3.
 
-The S3 bucket and DynamoDB lock table must already exist (bootstrapped in Story 5.0) before this stage can succeed.
+The S3 bucket must already exist (bootstrapped in Story 5.0) before this stage can succeed. No DynamoDB table is required — locking uses `use_lockfile = true` (Terraform 1.10+ native S3 locking).
 
 ```yaml
 - name: Terraform Init
@@ -235,7 +235,7 @@ The S3 bucket and DynamoDB lock table must already exist (bootstrapped in Story 
 **Purpose:** Apply infrastructure changes and update Lambda to the new image digest
 
 **State locking during apply:**
-Before modifying any resource, `terraform apply` writes a lock entry to the DynamoDB `iam-auditor-tf-state-lock` table (`LockID = "dev/terraform.tfstate"`). No other `apply` can run while the lock is held. After apply completes (or fails), the lock is released. If a pipeline is killed mid-apply, the lock can be manually released with `terraform force-unlock <lock_id>`.
+Before modifying any resource, `terraform apply` writes a `.tflock` file to S3 at `dev/terraform.tfstate.tflock`. No other `apply` can run while the lock file exists. After apply completes (or fails), the lock file is deleted. If a pipeline is killed mid-apply, the lock can be manually released with `terraform force-unlock <lock_id>`.
 
 ```yaml
 - name: Terraform Init
@@ -254,7 +254,7 @@ Before modifying any resource, `terraform apply` writes a lock entry to the Dyna
     AWS_REGION: us-east-1
 ```
 
-Terraform updates `aws_lambda_function.image_uri` to the new ECR image tag, triggering Lambda to use the newly pushed container on next invocation. After apply, the updated state file is written back to `s3://iam-auditor-tf-state-<account_id>/dev/terraform.tfstate` and the DynamoDB lock is released.
+Terraform updates `aws_lambda_function.image_uri` to the new ECR image tag, triggering Lambda to use the newly pushed container on next invocation. After apply, the updated state file is written back to `s3://iam-auditor-tf-state-<account_id>/dev/terraform.tfstate` and the S3 lock file (`dev/terraform.tfstate.tflock`) is deleted.
 
 ---
 
@@ -315,9 +315,8 @@ Minimum permissions for the GitHub Actions role, grouped by purpose:
 **Terraform remote state — read/write state file and acquire lock**
 - `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` on `arn:aws:s3:::iam-auditor-tf-state-<account_id>/*`
 - `s3:ListBucket` on `arn:aws:s3:::iam-auditor-tf-state-<account_id>`
-- `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:DeleteItem` on `iam-auditor-tf-state-lock`
 
-> **Why state permissions are required:** `terraform init` downloads the current state from S3 before computing a plan. `terraform apply` acquires a DynamoDB lock, writes the updated state to S3, then releases the lock. Without these permissions the pipeline fails at `terraform init` with an `AccessDenied` error.
+> **Why state permissions are required:** `terraform init` downloads the current state from S3 before computing a plan. `terraform apply` writes a `.tflock` file to S3 before modifying resources, writes the updated state file after apply, then deletes the lock file. All locking is handled via S3 (`use_lockfile = true`) — no DynamoDB table is needed. Without these S3 permissions the pipeline fails at `terraform init` with an `AccessDenied` error.
 
 All permissions are managed via Terraform in `infra/modules/iam/cicd_role.tf`.
 
@@ -416,7 +415,7 @@ jobs:
       - name: Terraform Init
         # Reads S3 backend from infra/envs/dev/backend.tf automatically.
         # Downloads current state from S3 using OIDC role credentials.
-        # Prerequisite: S3 bucket and DynamoDB lock table must already exist (bootstrapped in Story 5.0).
+        # Prerequisite: S3 bucket must already exist (bootstrapped in Story 5.0). No DynamoDB needed.
         run: cd infra/envs/dev && terraform init
 
       - name: Terraform Plan
@@ -468,7 +467,7 @@ jobs:
 
       - name: Terraform Init
         # Reads S3 backend from infra/envs/dev/backend.tf automatically.
-        # Downloads current state from S3, acquires DynamoDB lock before apply.
+        # Downloads current state from S3, acquires S3 lock file before apply.
         run: cd infra/envs/dev && terraform init
 
       - name: Terraform Apply

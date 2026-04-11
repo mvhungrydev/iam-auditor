@@ -13,56 +13,44 @@
 ┌───────────────────────────────────────────────────────────────┐
 │                         AWS Account                           │
 │                                                               │
-│  ┌──────────────┐    ┌─────────────────────────────────────┐  │
-│  │  EventBridge │    │              VPC                    │  │
-│  │  (weekly     │    │                                     │  │
-│  │   cron)      │    │  ┌──────────────────────────────┐   │  │
-│  └──────┬───────┘    │  │       Private Subnet         │   │  │
-│         │ trigger    │  │                              │   │  │
-│         ▼            │  │  ┌────────────────────────┐  │   │  │
-│  ┌──────────────┐    │  │  │   Lambda (Container)   │  │   │  │
-│  │   Lambda     │◄───┼──┼──│   handler.py           │  │   │  │
-│  │   Invoke     │    │  │  │   (ECR image)          │  │   │  │
-│  └──────────────┘    │  │  └─────────┬─────────────┘   │   │  │
-│                      │  │            │                 │   │  │
-│                      │  └────────────┼─────────────────┘   │  │
-│                      │               │                     │  │
-│                      │    ┌──────────▼──────────────────┐  │  │
-│                      │    │     Gateway VPC Endpoints   │  │  │
-│                      │    │   (S3 + DynamoDB — free)    │  │  │
-│                      │    └──────────┬──────────────────┘  │  │
-│                      └──────────────┼──────────────────────┘  │
-│                                     │                         │
-│         ┌───────────────────────────┼──────────────────────┐  │
-│         │                           │ AWS APIs             │  │
-│         │  ┌──────────────────┐     │                      │  │
-│         │  │  IAM Access      │◄────┤                      │  │
-│         │  │  Analyzer API    │     │                      │  │
-│         │  └──────────────────┘     │                      │  │
-│         │  ┌──────────────────┐     │                      │  │
-│         │  │  IAM Credential  │◄────┤                      │  │
-│         │  │  Report API      │     │                      │  │
-│         │  └──────────────────┘     │                      │  │
-│         │  ┌──────────────────┐     │                      │  │
-│         │  │  IAM Last        │◄────┘                      │  │
-│         │  │  Accessed API    │                            │  │
-│         │  └──────────────────┘                            │  │
-│         └──────────────────────────────────────────────── ─┘  │
+│  ┌──────────────┐                                             │
+│  │  EventBridge │                                             │
+│  │  (weekly     │                                             │
+│  │   cron)      │                                             │
+│  └──────┬───────┘                                             │
+│         │ trigger                                             │
+│         ▼                                                     │
+│  ┌──────────────────────────────────────────────────────┐     │
+│  │          Lambda (Container — ECR image)              │     │
+│  │          handler.py                                  │     │
+│  └───┬──────────────────────────────────────────────────┘     │
+│      │ calls public AWS APIs                                   │
+│      │                                                        │
+│  ┌───▼──────────────────────────────────────────────────┐     │
+│  │                    AWS APIs                          │     │
+│  │  IAM Access Analyzer  │  IAM Credential Report       │     │
+│  │  IAM Last Accessed    │  SSM Parameter Store         │     │
+│  └───────────────────────────────────────────────────── ┘     │
 │                                                               │
-│         ┌─────────────────────────────────────────────────┐   │
-│         │              Outputs                            │   │
-│         │  ┌──────────────┐    ┌────────────────────────┐ │   │
-│         │  │  DynamoDB    │    │  SNS → Email           │ │   │
-│         │  │  (findings)  │    │  (weekly summary)      │ │   │
-│         │  └──────────────┘    └────────────────────────┘ │   │
-│         └─────────────────────────────────────────────────┘   │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │              Outputs                                   │   │
+│  │  ┌──────────────┐    ┌────────────────────────┐        │   │
+│  │  │  DynamoDB    │    │  SNS → Email           │        │   │
+│  │  │  (findings)  │    │  (weekly summary)      │        │   │
+│  │  └──────────────┘    └────────────────────────┘        │   │
+│  └────────────────────────────────────────────────────────┘   │
 │                                                               │
-│         ┌─────────────────────────────────────────────────┐   │
-│         │              Config                             │   │
-│         │  ┌──────────────────────────────────────────┐   │   │
-│         │  │  SSM Parameter Store (runtime config)    │   │   │
-│         │  └──────────────────────────────────────────┘   │   │
-│         └─────────────────────────────────────────────────┘   │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │              Config                                    │   │
+│  │  ┌──────────────────────────────────────────┐          │   │
+│  │  │  SSM Parameter Store (runtime config)    │          │   │
+│  │  └──────────────────────────────────────────┘          │   │
+│  └────────────────────────────────────────────────────────┘   │
+│                                                               │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │  VPC (reserved for future use — Lambda not attached)  │   │
+│  │  Private Subnet + Gateway Endpoints: S3 + DynamoDB    │   │
+│  └────────────────────────────────────────────────────────┘   │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -93,7 +81,7 @@ Step 5:  Lambda applies severity rules to raw data:
          - MEDIUM: access key unused 90+ days, role unused 90+ days
               │
 Step 6:  Lambda writes each finding to DynamoDB
-         (via Gateway VPC Endpoint — traffic stays within AWS network)
+         (via public DynamoDB API — Lambda is not VPC-attached)
               │
 Step 7:  Lambda builds summary email (finding counts by severity)
          and publishes to SNS topic → subscriber receives email
@@ -116,7 +104,7 @@ Step 8:  Lambda logs execution summary to CloudWatch Logs
 | DynamoDB              | Persistent findings store        | 25GB always free          |
 | SNS                   | Email delivery of weekly report  | 1M publishes always free  |
 | SSM Parameter Store   | Runtime config and secrets       | Standard tier always free |
-| VPC + Private Subnet  | Network isolation for Lambda     | Always free               |
+| VPC + Private Subnet  | Reserved for future use (Lambda not VPC-attached) | Always free  |
 | Gateway VPC Endpoints | Private access to DynamoDB + S3  | Always free               |
 | CloudWatch Logs       | Lambda execution logs            | 5GB/mo free               |
 
