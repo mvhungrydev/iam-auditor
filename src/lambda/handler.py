@@ -4,6 +4,40 @@ from datetime import datetime, timezone
 from auditors import credential_report, policy_scanner, access_analyzer, last_accessed
 
 
+def _build_message(run_id, findings):
+    """Build a human-readable SNS email body grouped by severity."""
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    critical = [f for f in findings if f["severity"] == "CRITICAL"]
+    high     = [f for f in findings if f["severity"] == "HIGH"]
+    medium   = [f for f in findings if f["severity"] == "MEDIUM"]
+
+    lines = [
+        f"IAM Auditor run {run_id} complete.",
+        f"Timestamp: {timestamp}",
+        "",
+        "FINDINGS BY SEVERITY",
+        "--------------------",
+        f"CRITICAL : {len(critical)}",
+        f"HIGH     : {len(high)}",
+        f"MEDIUM   : {len(medium)}",
+        f"TOTAL    : {len(findings)}",
+    ]
+
+    for label, group in [("CRITICAL", critical), ("HIGH", high), ("MEDIUM", medium)]:
+        if group:
+            lines += ["", f"--- {label} ---"]
+            for f in group:
+                lines.append(f"[{f['rule_id']}] {f['resource_arn']}")
+                lines.append(f"      {f['detail']}")
+
+    lines += [
+        "",
+        "Full findings in DynamoDB: iam-audit-findings",
+        f"Query by run_id: {run_id}",
+    ]
+    return "\n".join(lines)
+
+
 def lambda_handler(event, context):
     # %%
     print("[handler] Lambda invoked with event:", event)
@@ -48,7 +82,7 @@ def lambda_handler(event, context):
     sns.publish(
         TopicArn=sns_topic_arn,
         Subject=f"[IAM Auditor] Weekly Report \u2014 {date_str}",
-        Message=f"IAM Auditor run {run_id} complete. Total findings: {len(findings)}",
+        Message=_build_message(run_id, findings),
     )
     print(f"[handler] SNS published for run {run_id}")
 

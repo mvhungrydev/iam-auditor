@@ -42,11 +42,3 @@ output "sns_topic_arn" {
   value       = module.sns.topic_arn
   description = "SNS topic ARN — check subscription confirmation email before first Lambda run"
 }
-
-# -----------------------------------------------------------------------------
-# VPC outputs
-# -----------------------------------------------------------------------------
-output "vpc_id" {
-  value       = module.vpc.vpc_id
-  description = "VPC ID — reference for any manual EC2 or network debugging"
-}

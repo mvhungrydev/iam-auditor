@@ -151,3 +151,22 @@ aws logs tail /aws/lambda/iam-auditor --follow --region us-east-1
 aws dynamodb scan \
   --table-name iam-audit-findings \
   --region us-east-1
+
+
+aws lambda get-function \
+    --function-name iam-auditor \
+    --region us-east-1 \
+    --query '{ImageUri: Code.ImageUri, Tags: Tags}'
+    
+aws lambda get-function-configuration \
+--function-name iam-auditor \
+--region us-east-1 \
+--query 'ImageConfigResponse'           
+                                                             
+check the image URI to confirm it's pointing to the
+  Git SHA tag:                                               
+                                                           
+aws lambda get-function \
+--function-name iam-auditor \
+--region us-east-1 \
+--query 'Code.ImageUri'

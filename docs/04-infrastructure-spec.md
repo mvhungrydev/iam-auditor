@@ -12,10 +12,6 @@
 ```
 infra/
 ├── modules/                    ← reusable modules — all logic lives here
-│   ├── vpc/                    ← VPC, subnets, route tables, Gateway endpoints
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
 │   ├── ecr/                    ← ECR repository + lifecycle policy
 │   │   ├── main.tf
 │   │   ├── variables.tf
@@ -67,14 +63,6 @@ infra/
 
 | Resource | Type | Module | Notes |
 |----------|------|--------|-------|
-| VPC | `aws_vpc` | vpc | CIDR 10.0.0.0/16 |
-| Public Subnet | `aws_subnet` | vpc | 10.0.1.0/24, us-east-1a |
-| Private Subnet | `aws_subnet` | vpc | 10.0.2.0/24, us-east-1a |
-| Internet Gateway | `aws_internet_gateway` | vpc | Attached to VPC |
-| Public Route Table | `aws_route_table` | vpc | Routes 0.0.0.0/0 → IGW |
-| Private Route Table | `aws_route_table` | vpc | No default route (no NAT) |
-| S3 Gateway Endpoint | `aws_vpc_endpoint` | vpc | type=Gateway, free |
-| DynamoDB Gateway Endpoint | `aws_vpc_endpoint` | vpc | type=Gateway, free |
 | ECR Repository | `aws_ecr_repository` | ecr | `iam-auditor-lambda` |
 | ECR Lifecycle Policy | `aws_ecr_lifecycle_policy` | ecr | Keep last 3 images |
 | Lambda Execution Role | `aws_iam_role` | iam | Least-privilege policy |
@@ -96,7 +84,6 @@ infra/
 | Demo IAM role (managed wildcard) | `aws_iam_role` + `aws_iam_policy` | demo-data | Triggers R10 — dev only |
 | Demo IAM role (unused) | `aws_iam_role` | demo-data | Triggers R07 — dev only |
 | Terraform State Bucket | S3 bucket | **bootstrapped** (not Terraform-managed) | `iam-auditor-tf-state-<account_id>` — versioning + AES-256 + public access blocked |
-| Terraform State Lock Table | DynamoDB table | **bootstrapped** (not Terraform-managed) | `iam-auditor-tf-state-lock` — `LockID` (String) PK, PAY_PER_REQUEST |
 
 ---
 
@@ -319,7 +306,7 @@ The S3 lock file also scopes per key — a dev apply and a prod apply can run si
 
 ### CI/CD State Access — Required IAM Permissions
 
-When GitHub Actions calls `terraform init` and `terraform apply`, it uses the OIDC role. That role needs the following permissions on the state resources. These are already included in `infra/modules/iam/cicd_role.tf`:
+When GitHub Actions calls `terraform init` and `terraform apply`, it uses the OIDC role. That role needs the following permissions on the state resources. These are already included in `infra/modules/iam/main.tf`:
 
 ```json
 {
@@ -350,16 +337,7 @@ When GitHub Actions calls `terraform init` and `terraform apply`, it uses the OI
 
 ## 9. Module Outputs Reference
 
-These are the outputs each module exposes. Used when wiring modules together in `envs/dev/main.tf` (e.g., `module.vpc.vpc_id`).
-
-### vpc
-
-| Output | Description | Consumer |
-|--------|-------------|----------|
-| `vpc_id` | VPC ID | VPC endpoints |
-| `public_subnet_id` | Public subnet ID | (reserved — not currently used) |
-| `private_subnet_id` | Private subnet ID | (reserved — not currently consumed) |
-| `private_route_table_id` | Private route table ID | Gateway Endpoints (S3, DynamoDB) |
+These are the outputs each module exposes. Used when wiring modules together in `envs/dev/main.tf`.
 
 ### ecr
 

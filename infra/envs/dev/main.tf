@@ -1,18 +1,6 @@
 data "aws_caller_identity" "current" {}
 
 # -----------------------------------------------------------------------------
-# VPC
-# Creates the VPC, public + private subnets, IGW, route tables, and Gateway
-# Endpoints for S3 and DynamoDB (free, keeps Lambda traffic off the internet).
-# -----------------------------------------------------------------------------
-module "vpc" {
-  source       = "../../modules/vpc"
-  project_name = var.project_name
-  # All CIDR and AZ variables use module defaults (10.0.0.0/16, us-east-1a).
-  # Override here if you need a different network layout.
-}
-
-# -----------------------------------------------------------------------------
 # ECR
 # Creates the container image repository. Must be applied first (via
 # -target=module.ecr) before the Docker image can be pushed in Story 5.2.

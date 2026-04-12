@@ -25,60 +25,43 @@ This is a portfolio project demonstrating AWS DevOps and security engineering sk
 ┌───────────────────────────────────────────────────────────────┐
 │                         AWS Account                           │
 │                                                               │
-│  ┌──────────────┐    ┌─────────────────────────────────────┐  │
-│  │  EventBridge │    │              VPC                    │  │
-│  │  (weekly     │    │                                     │  │
-│  │   cron)      │    │  ┌──────────────────────────────┐   │  │
-│  └──────┬───────┘    │  │       Private Subnet         │   │  │
-│         │ trigger    │  │                              │   │  │
-│         ▼            │  │  ┌────────────────────────┐  │   │  │
-│  ┌──────────────┐    │  │  │   Lambda (Container)   │  │   │  │
-│  │   Lambda     │◄───┼──┼──│   handler.py           │  │   │  │
-│  │   Invoke     │    │  │  │   (ECR image)          │  │   │  │
-│  └──────────────┘    │  │  └─────────┬─────────────┘   │   │  │
-│                      │  │            │                 │   │  │
-│                      │  └────────────┼─────────────────┘   │  │
-│                      │               │                     │  │
-│                      │    ┌──────────▼──────────────────┐  │  │
-│                      │    │     Gateway VPC Endpoints   │  │  │
-│                      │    │   (S3 + DynamoDB — free)    │  │  │
-│                      │    └──────────┬──────────────────┘  │  │
-│                      └──────────────┼──────────────────────┘  │
-│                                     │                         │
-│         ┌───────────────────────────┼──────────────────────┐  │
-│         │                           │ AWS APIs             │  │
-│         │  ┌──────────────────┐     │                      │  │
-│         │  │  IAM Access      │◄────┤                      │  │
-│         │  │  Analyzer API    │     │                      │  │
-│         │  └──────────────────┘     │                      │  │
-│         │  ┌──────────────────┐     │                      │  │
-│         │  │  IAM Credential  │◄────┤                      │  │
-│         │  │  Report API      │     │                      │  │
-│         │  └──────────────────┘     │                      │  │
-│         │  ┌──────────────────┐     │                      │  │
-│         │  │  IAM Last        │◄────┘                      │  │
-│         │  │  Accessed API    │                            │  │
-│         │  └──────────────────┘                            │  │
-│         └──────────────────────────────────────────────────┘  │
+│  ┌──────────────┐                                             │
+│  │  EventBridge │                                             │
+│  │  (weekly     │                                             │
+│  │   cron)      │                                             │
+│  └──────┬───────┘                                             │
+│         │ trigger                                             │
+│         ▼                                                     │
+│  ┌──────────────────────────────────────────────────────┐     │
+│  │          Lambda (Container — ECR image)              │     │
+│  │          handler.py                                  │     │
+│  └───┬──────────────────────────────────────────────────┘     │
+│      │ calls public AWS APIs                                   │
+│      │                                                        │
+│  ┌───▼──────────────────────────────────────────────────┐     │
+│  │                    AWS APIs                          │     │
+│  │  IAM Access Analyzer  │  IAM Credential Report       │     │
+│  │  IAM Last Accessed    │  SSM Parameter Store         │     │
+│  └───────────────────────────────────────────────────── ┘     │
 │                                                               │
-│         ┌─────────────────────────────────────────────────┐   │
-│         │              Outputs                            │   │
-│         │  ┌──────────────┐    ┌────────────────────────┐ │   │
-│         │  │  DynamoDB    │    │  SNS → Email           │ │   │
-│         │  │  (findings)  │    │  (weekly summary)      │ │   │
-│         │  └──────────────┘    └────────────────────────┘ │   │
-│         └─────────────────────────────────────────────────┘   │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │              Outputs                                   │   │
+│  │  ┌──────────────┐    ┌────────────────────────┐        │   │
+│  │  │  DynamoDB    │    │  SNS → Email           │        │   │
+│  │  │  (findings)  │    │  (weekly summary)      │        │   │
+│  │  └──────────────┘    └────────────────────────┘        │   │
+│  └────────────────────────────────────────────────────────┘   │
 │                                                               │
-│         ┌─────────────────────────────────────────────────┐   │
-│         │              Config                             │   │
-│         │  ┌──────────────────────────────────────────┐   │   │
-│         │  │  SSM Parameter Store (runtime config)    │   │   │
-│         │  └──────────────────────────────────────────┘   │   │
-│         └─────────────────────────────────────────────────┘   │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │              Config                                    │   │
+│  │  ┌──────────────────────────────────────────┐          │   │
+│  │  │  SSM Parameter Store (runtime config)    │          │   │
+│  │  └──────────────────────────────────────────┘          │   │
+│  └────────────────────────────────────────────────────────┘   │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-**Data flow:** EventBridge fires every Monday 08:00 UTC → Lambda starts from ECR image → reads config from SSM → queries IAM APIs in parallel → applies detection rules → writes findings to DynamoDB via Gateway VPC Endpoint → publishes summary email to SNS.
+**Data flow:** EventBridge fires every Monday 08:00 UTC → Lambda starts from ECR image → reads config from SSM → queries IAM APIs in parallel → applies detection rules → writes findings to DynamoDB → publishes summary email to SNS.
 
 ---
 
@@ -92,10 +75,10 @@ This is a portfolio project demonstrating AWS DevOps and security engineering sk
 | R04 | IAM user with inline policy containing wildcard action | HIGH | [policy_scanner.py](src/lambda/auditors/policy_scanner.py) |
 | R09 | IAM role with inline policy containing wildcard action | HIGH | [policy_scanner.py](src/lambda/auditors/policy_scanner.py) |
 | R10 | IAM role with customer-managed policy containing wildcard action | HIGH | [policy_scanner.py](src/lambda/auditors/policy_scanner.py) |
-| R05 | Console password unused for 90+ days | MEDIUM | [credential_report.py](src/lambda/auditors/credential_report.py) |
-| R06 | Access key unused for 90+ days | MEDIUM | [credential_report.py](src/lambda/auditors/credential_report.py) |
+| R05 | Access key unused for 90+ days (or never used) | MEDIUM | [credential_report.py](src/lambda/auditors/credential_report.py) |
+| R06 | Access key not rotated in 90+ days | MEDIUM | [credential_report.py](src/lambda/auditors/credential_report.py) |
 | R07 | IAM role with no service activity for 90+ days | MEDIUM | [last_accessed.py](src/lambda/auditors/last_accessed.py) |
-| R08 | Access key not rotated in 90+ days | MEDIUM | [credential_report.py](src/lambda/auditors/credential_report.py) |
+| R08 | Console password unused for 90+ days (or never used) | MEDIUM | [credential_report.py](src/lambda/auditors/credential_report.py) |
 
 Sensitive services for wildcard policy detection: `s3`, `iam`, `ec2`, `lambda`.
 
@@ -107,7 +90,7 @@ Sensitive services for wildcard policy detection: `s3`, `iam`, `ec2`, `lambda`.
 |-------|-----------|
 | Runtime | Python 3.12, AWS Lambda (container image) |
 | Container | Docker, Amazon ECR |
-| Infrastructure | Terraform >= 1.6, AWS VPC, EventBridge, DynamoDB, SNS, SSM |
+| Infrastructure | Terraform >= 1.6, EventBridge, DynamoDB, SNS, SSM |
 | Testing | pytest, moto (AWS mocking), pytest-cov |
 | Security scanning | checkov (IaC), bandit (Python), Trivy (container) |
 | Local AWS | LocalStack, tflocal, awslocal |
@@ -265,23 +248,31 @@ cp infra/envs/dev/terraform.tfvars.example infra/envs/dev/terraform.tfvars
 
 ### 1. Bootstrap Remote State (one-time)
 
-Before running `terraform init`, the S3 bucket and DynamoDB lock table must exist:
+Before running `terraform init`, the S3 bucket must exist. This project uses Terraform 1.10+ native S3 locking (`use_lockfile = true`) — no DynamoDB table is needed.
 
 ```bash
 # Replace <account_id> with your 12-digit AWS account ID
-aws s3 mb s3://iam-auditor-tf-state-<account_id> --region us-east-1
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
-aws dynamodb create-table \
-  --table-name iam-auditor-tf-state-lock \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
+# Create the state bucket
+aws s3api create-bucket \
+  --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
   --region us-east-1
 
-# Enable versioning on the bucket
+# Enable versioning
 aws s3api put-bucket-versioning \
-  --bucket iam-auditor-tf-state-<account_id> \
+  --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
   --versioning-configuration Status=Enabled
+
+# Enable encryption
+aws s3api put-bucket-encryption \
+  --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
+  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+
+# Block public access
+aws s3api put-public-access-block \
+  --bucket iam-auditor-tf-state-${ACCOUNT_ID} \
+  --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
 ```
 
 ### 2. Apply Infrastructure
@@ -312,13 +303,15 @@ cat response.json
 The pipeline uses GitHub OIDC for AWS authentication — no AWS credentials are stored as GitHub secrets.
 
 **Triggers:**
-- Push to `dev` → runs checks + deploys to dev
-- Push to `main` → runs checks + deploys to prod
+- Pull request to `dev` → security scans + `terraform plan` posted as PR comment
+- Push / merge to `dev` → security scans + Docker build/push to ECR + `terraform apply`
+- Manual `workflow_dispatch` → same as push to `dev`
 
-**Gates (must pass before any deploy):**
-- `checkov` IaC security scan
-- `bandit` Python security scan
-- `pytest` full test suite
+**Security gates (must pass before deploy):**
+- `gitleaks` — scans full git history for hardcoded secrets
+- `bandit` — Python SAST (MEDIUM+ severity)
+- `checkov` — Terraform IaC misconfiguration scan
+- `trivy` — container CVE scan (CRITICAL/HIGH with fix available)
 
 See [`docs/05-cicd-pipeline-spec.md`](docs/05-cicd-pipeline-spec.md) for the full workflow design, OIDC trust setup, and branch protection rules.
 
@@ -375,7 +368,6 @@ This project is designed to run entirely within the AWS Free Tier:
 | EventBridge | 14M events/month — always free |
 | CloudWatch Logs | 5 GB/month free |
 | ECR | 500 MB free (first 12 months) |
-| VPC + Gateway Endpoints | Always free |
 
 ---
 
