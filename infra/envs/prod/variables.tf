@@ -11,6 +11,10 @@ variable "project_name" {
   default = "iam-auditor"
 }
 
+variable "account_id" {
+  type    = string
+  default = "000000000000" # Placeholder value — must be overridden with real account ID in prod.tfvars
+}
 variable "alert_email" {
   type        = string
   description = "Email address that receives weekly IAM audit reports in prod"

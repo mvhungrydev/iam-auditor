@@ -15,6 +15,7 @@ module "ecr" {
 module "iam" {
   source       = "../../modules/iam"
   project_name = var.project_name
+  account_id   = var.account_id
   github_org   = var.github_org
   github_repo  = var.github_repo
 }

@@ -151,5 +151,3 @@ aws logs tail /aws/lambda/iam-auditor --follow --region us-east-1
 aws dynamodb scan \
   --table-name iam-audit-findings \
   --region us-east-1
-
-# Task 4 — Check email inbox for SNS report from iam-auditor-alerts topic
