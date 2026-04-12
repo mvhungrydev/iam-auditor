@@ -65,8 +65,11 @@ infra/
 |----------|------|--------|-------|
 | ECR Repository | `aws_ecr_repository` | ecr | `iam-auditor-lambda` |
 | ECR Lifecycle Policy | `aws_ecr_lifecycle_policy` | ecr | Keep last 3 images |
-| Lambda Execution Role | `aws_iam_role` | iam | Least-privilege policy |
-| Lambda IAM Policy | `aws_iam_policy` | iam | See Technical Design doc |
+| Lambda Execution Role | `aws_iam_role` | iam | Least-privilege policy — 8 statements, scoped to project resources |
+| Lambda IAM Policy | `aws_iam_policy` | iam | Attached to Lambda execution role — see Technical Design §5 |
+| GitHub Actions OIDC Provider | `aws_iam_openid_connect_provider` | iam | Trusts `token.actions.githubusercontent.com` — enables keyless auth from GitHub |
+| GitHub Actions CI/CD Role | `aws_iam_role` | iam | Assumed via OIDC — scoped to this repo only via `sub` condition |
+| GitHub Actions CI/CD Policy | `aws_iam_policy` | iam | Grants Terraform provisioning + ECR push + S3 state access |
 | Lambda Function | `aws_lambda_function` | lambda | Container image from ECR |
 | EventBridge Rule | `aws_cloudwatch_event_rule` | lambda | cron(0 8 ? * MON *) |
 | EventBridge Target | `aws_cloudwatch_event_target` | lambda | Target = Lambda ARN |
