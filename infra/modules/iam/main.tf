@@ -131,7 +131,7 @@ resource "aws_iam_role" "cicd" {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/dev"
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:*"
         }
       }
     }]
@@ -194,6 +194,20 @@ resource "aws_iam_policy" "cicd" {
           "ecr:*", "access-analyzer:*"
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "S3State"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::iam-auditor-tf-state-${var.account_id}",
+          "arn:aws:s3:::iam-auditor-tf-state-${var.account_id}/*"
+        ]
       }
     ]
   })
