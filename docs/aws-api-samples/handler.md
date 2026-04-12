@@ -106,8 +106,40 @@ Called once per run after all findings are written.
 sns.publish(
     TopicArn="arn:aws:sns:us-east-1:123456789012:iam-auditor-alerts",
     Subject="[IAM Auditor] Weekly Report — 2026-03-28",
-    Message="Run ID: 3f1e7b2a-...\nTotal: 4\nCritical: 1\nHigh: 2\nMedium: 1"
+    Message=_build_message(run_id, findings)
 )
+```
+
+The `_build_message` helper produces a structured plain-text body grouped by severity:
+
+```
+IAM Auditor run 3f1e7b2a-... complete.
+Timestamp: 2026-03-28 08:00:00 UTC
+
+FINDINGS BY SEVERITY
+--------------------
+CRITICAL : 1
+HIGH     : 2
+MEDIUM   : 1
+TOTAL    : 4
+
+--- CRITICAL ---
+[R01] arn:aws:s3:::my-exposed-bucket
+      s3:GetObject, s3:ListBucket
+
+--- HIGH ---
+[R03] arn:aws:iam::123456789012:user/no-mfa-user
+      User 'no-mfa-user' has a console password but no MFA device registered.
+
+[R04] arn:aws:iam::123456789012:user/wildcard-policy-user
+      User has inline policy with wildcard action on sensitive service: iam
+
+--- MEDIUM ---
+[R07] arn:aws:iam::123456789012:role/unused-role
+      Role 'unused-role' has had no service activity in 180 days (threshold: 90 days).
+
+Full findings in DynamoDB: iam-audit-findings
+Query by run_id: 3f1e7b2a-...
 ```
 
 **Response**

@@ -187,6 +187,81 @@ def test_handler_publishes_sns(dynamodb_table, sns_topic, ssm_params):
     assert subject == f"[IAM Auditor] Weekly Report \u2014 {date_str}"
 
 
+def test_handler_sns_message_format(dynamodb_table, sns_topic, ssm_params):
+    """SNS message body contains severity counts, grouped findings, and DynamoDB query hint.
+
+    Patch auditors to return 1 CRITICAL, 1 HIGH, 1 MEDIUM finding.
+    Assert the message has:
+      - correct severity counts in the header block
+      - a section for each severity tier that fired
+      - the rule_id and resource_arn of each finding
+      - the DynamoDB table name and run_id at the bottom
+    """
+    original_call = botocore.client.BaseClient._make_api_call
+    publish_calls = []
+
+    def capture_publish(self, operation_name, api_params):
+        if operation_name == "Publish":
+            publish_calls.append(api_params)
+            return {"MessageId": "test-message-id"}
+        return original_call(self, operation_name, api_params)
+
+    with patch(
+        "handler.credential_report.run", return_value=[make_finding("R03", "HIGH")]
+    ), patch(
+        "handler.policy_scanner.run", return_value=[]
+    ), patch(
+        "handler.access_analyzer.run", return_value=[make_finding("R01", "CRITICAL")]
+    ), patch(
+        "handler.last_accessed.run", return_value=[make_finding("R07", "MEDIUM")]
+    ), patch(
+        "botocore.client.BaseClient._make_api_call", capture_publish
+    ):
+        result = handler.lambda_handler({}, None)
+
+    assert len(publish_calls) == 1
+    msg = publish_calls[0]["Message"]
+
+    # Severity summary block
+    assert "CRITICAL : 1" in msg
+    assert "HIGH     : 1" in msg
+    assert "MEDIUM   : 1" in msg
+    assert "TOTAL    : 3" in msg
+
+    # Each severity section header is present
+    assert "--- CRITICAL ---" in msg
+    assert "--- HIGH ---" in msg
+    assert "--- MEDIUM ---" in msg
+
+    # Finding details appear in the message
+    assert "[R01]" in msg
+    assert "[R03]" in msg
+    assert "[R07]" in msg
+    assert "arn:aws:iam::123456789012:user/test-user" in msg
+
+    # DynamoDB query hint
+    assert "iam-audit-findings" in msg
+    assert f"Query by run_id: {result['run_id']}" in msg
+
+
+def test_build_message_no_findings():
+    """_build_message with an empty findings list omits all severity sections.
+
+    No '--- CRITICAL ---' / '--- HIGH ---' / '--- MEDIUM ---' headers should
+    appear when there are no findings — only the summary block and footer.
+    """
+    msg = handler._build_message("test-run-id", [])
+
+    assert "CRITICAL : 0" in msg
+    assert "HIGH     : 0" in msg
+    assert "MEDIUM   : 0" in msg
+    assert "TOTAL    : 0" in msg
+    assert "--- CRITICAL ---" not in msg
+    assert "--- HIGH ---" not in msg
+    assert "--- MEDIUM ---" not in msg
+    assert "Query by run_id: test-run-id" in msg
+
+
 def test_handler_no_findings(dynamodb_table, sns_topic, ssm_params):
     """All auditors return [] → counts are all 0, DynamoDB is empty, SNS still fires.
 
