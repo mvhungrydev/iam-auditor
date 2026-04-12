@@ -324,14 +324,18 @@ All permissions are managed via Terraform in `infra/modules/iam/cicd_role.tf`.
 
 ## 5. Branch Protection Rules
 
-Configure in GitHub repo Settings → Branches → Branch protection rules for `dev`:
+Configure in GitHub repo → Settings → Branches → Add rule → Branch name pattern: `dev`
 
 | Rule | Setting |
 |------|---------|
-| Require status checks to pass | ✅ All 4 scan stages + terraform plan |
-| Require branches to be up to date | ✅ |
-| Require pull request before merging | ✅ |
-| Do not allow bypassing above settings | ✅ |
+| Require a pull request before merging | ✅ |
+| Require status checks to pass before merging | ✅ |
+| — Status check: `security-scan` | Exact job name from `deploy.yml` |
+| — Status check: `terraform-plan` | Exact job name from `deploy.yml` |
+| Require branches to be up to date before merging | ✅ |
+| Do not allow bypassing the above settings | ✅ |
+
+> **Note:** The status check names (`security-scan`, `terraform-plan`) will not appear in the GitHub dropdown until the workflow has run at least once. Complete Story 6.3 first, trigger a PR, then come back and add the status checks by name.
 
 ---
 

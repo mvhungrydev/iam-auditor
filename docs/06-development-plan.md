@@ -886,19 +886,39 @@ _Verify the real Lambda calls real AWS APIs and produces real findings._
 
 **Tasks:**
 
-- [ ] Push all local code to GitHub (`git push origin dev`)
-- [ ] Set up branch protection on `main`: require PR, require status checks
-- [ ] Set GitHub repo variable `AWS_ACCOUNT_ID` (repo Settings → Variables)
+- [x] Push all local code to GitHub (`git push origin dev`)
+- [ ] Set up branch protection on `dev` — full rule details in `docs/05-cicd-pipeline-spec.md §5`:
+  - GitHub repo → Settings → Branches → Add rule → Branch name pattern: `dev`
+  - ✅ Require a pull request before merging
+  - ✅ Require status checks to pass before merging
+    - Add status checks: `security-scan`, `terraform-plan` (exact job names from the workflow)
+    - ✅ Require branches to be up to date before merging
+  - ✅ Do not allow bypassing the above settings
+  > Note: status check names won't appear in the dropdown until the first pipeline run. Add them after Story 6.3 is complete and the first PR runs the workflow.
+- [ ] Set GitHub repo variable `AWS_ACCOUNT_ID`:
+  - GitHub repo → Settings → Secrets and variables → Actions → Variables tab → New repository variable
+  - Name: `AWS_ACCOUNT_ID`
+  - Value: `548931596025`
 
 ---
 
-### Story 6.2 — GitHub OIDC trust (one-time AWS setup)
+### Story 6.2 — Verify GitHub OIDC trust (already provisioned by Terraform)
+
+_The OIDC identity provider and CI/CD role were created by `terraform apply` in Story 5.3. These tasks confirm they are correctly configured._
 
 **Tasks:**
 
-- [ ] Create the GitHub OIDC identity provider in IAM (Terraform-managed in `infra/modules/iam/`)
-- [ ] Verify the OIDC provider was created: `aws iam list-open-id-connect-providers`
-- [ ] Verify the CI/CD role trust policy matches your repo and `main` branch
+- [ ] Verify the OIDC provider exists:
+  ```bash
+  aws iam list-open-id-connect-providers
+  ```
+  Expected: entry for `token.actions.githubusercontent.com`
+- [ ] Verify the CI/CD role trust policy matches your repo and `dev` branch:
+  ```bash
+  aws iam get-role --role-name github-actions-iam-auditor \
+    --query 'Role.AssumeRolePolicyDocument'
+  ```
+  Expected: condition `repo:mvhungrydev/iam-auditor:ref:refs/heads/dev`
 
 ---
 
@@ -907,7 +927,7 @@ _Verify the real Lambda calls real AWS APIs and produces real findings._
 **Tasks:**
 
 - [ ] Create `.github/workflows/deploy.yml` per the full YAML in `docs/05-cicd-pipeline-spec.md §6`
-- [ ] Jobs: `security-scan` → `terraform-plan` (PR only) → `deploy` (main only)
+- [ ] Jobs: `security-scan` → `terraform-plan` (PR only) → `deploy` (push to `dev` only)
 - [ ] Verify gitleaks, bandit, checkov, trivy stages match the spec
 - [ ] Verify OIDC credential step uses `role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-actions-iam-auditor`
 
@@ -917,7 +937,7 @@ _Verify the real Lambda calls real AWS APIs and produces real findings._
 
 **Tasks:**
 
-- [ ] Create a feature branch, make a small change, open a PR to `main`
+- [ ] Create a feature branch, make a small change, open a PR to `dev`
 - [ ] Verify all 4 security scans pass in GitHub Actions
 - [ ] Verify `terraform plan` output is posted as a PR comment
 - [ ] Merge the PR, verify the deploy job runs: Docker build → ECR push → `terraform apply`
