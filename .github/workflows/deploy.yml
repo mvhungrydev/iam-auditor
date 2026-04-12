@@ -77,6 +77,8 @@ jobs:
         run: cd infra/envs/dev && terraform init
 
       - name: Terraform Plan
+        env:
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
         run: |
           cd infra/envs/dev
           terraform plan -no-color 2>&1 | tee plan.txt
@@ -129,6 +131,8 @@ jobs:
         run: cd infra/envs/dev && terraform init
 
       - name: Terraform Apply
+        env:
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
         run: |
           cd infra/envs/dev
           terraform apply -auto-approve -var="ecr_image_tag=${{ github.sha }}"

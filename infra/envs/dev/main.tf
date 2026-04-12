@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 # -----------------------------------------------------------------------------
 # VPC
 # Creates the VPC, public + private subnets, IGW, route tables, and Gateway
@@ -31,6 +33,7 @@ module "iam" {
   project_name = var.project_name
   github_org   = var.github_org
   github_repo  = var.github_repo
+  account_id   = data.aws_caller_identity.current.account_id
 }
 
 # -----------------------------------------------------------------------------

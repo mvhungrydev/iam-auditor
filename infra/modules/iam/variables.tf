@@ -13,3 +13,8 @@ variable "github_repo" {
   default     = "iam-auditor"
   description = "GitHub repository name"
 }
+
+variable "account_id" {
+  type        = string
+  description = "AWS account ID — used to scope S3 state bucket permissions for the CI/CD role"
+}
