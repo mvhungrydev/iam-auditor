@@ -250,7 +250,59 @@ Lambda execution role policy — only the minimum actions required.
 
 ---
 
-## 6. Detection Rules
+## 6. GitHub Actions CI/CD Role (OIDC)
+
+The CI/CD role allows GitHub Actions to authenticate to AWS without storing any credentials. It uses OpenID Connect (OIDC) — GitHub issues a short-lived JWT at runtime, AWS validates it against the registered OIDC provider, and exchanges it for temporary STS credentials scoped to this role.
+
+### Trust Policy
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::<account_id>:oidc-provider/token.actions.githubusercontent.com"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+      },
+      "StringLike": {
+        "token.actions.githubusercontent.com:sub": "repo:<github_org>/iam-auditor:*"
+      }
+    }
+  }]
+}
+```
+
+The `sub` condition scopes trust to this specific GitHub repository. No other repo on GitHub can assume this role even if they know the role ARN. The `*` wildcard on the ref allows any branch to authenticate — deploy is still gated by the workflow `if:` condition (`github.ref == 'refs/heads/dev'`).
+
+### CI/CD Role Policy
+
+Five statements covering the full deployment surface:
+
+| Sid | Actions | Resource | Purpose |
+|-----|---------|----------|---------|
+| `ECRAuth` | `ecr:GetAuthorizationToken` | `*` | Authenticate Docker to ECR — cannot be scoped below `*` |
+| `ECRPush` | `ecr:BatchCheck`, `PutImage`, `UploadLayer`, etc. | `arn:aws:ecr:*:*:repository/iam-auditor-lambda` | Push container image to the project ECR repo |
+| `LambdaDeploy` | `lambda:UpdateFunctionCode`, `GetFunction`, etc. | `arn:aws:lambda:*:*:function:iam-auditor*` | Update Lambda image after ECR push |
+| `TerraformManage` | `ec2:*`, `iam:*`, `lambda:*`, `dynamodb:*`, `sns:*`, `ssm:*`, `logs:*`, `events:*`, `ecr:*`, `access-analyzer:*` | `*` | Full Terraform provisioning — see tradeoff note below |
+| `S3State` | `s3:GetObject`, `PutObject`, `DeleteObject`, `ListBucket` | `arn:aws:s3:::iam-auditor-tf-state-<account_id>/*` | Read and write Terraform remote state |
+
+### Tradeoff: `TerraformManage` uses `Resource: "*"`
+
+`TerraformManage` is intentionally broad. Terraform requires the ability to create, update, and delete infrastructure resources — many AWS control-plane operations do not support resource-level scoping. For example, `iam:CreateRole` cannot be pre-scoped to a role that does not yet exist.
+
+The compensating controls are:
+- The trust policy scopes role assumption to a single GitHub repo
+- The deploy job only runs on push to `dev` — not on PRs or forks
+- All Terraform changes go through the security scan gate (checkov, bandit, trivy, gitleaks) before deploy runs
+
+---
+
+## 7. Detection Rules
 
 | Rule ID | Data Source | Condition | Severity | Remediation |
 | ------- | ------------------- | -------------------------------------------------------| R01 | IAM Access Analyzer | Any active external access finding | CRITICAL | Remove the external principal from the resource policy |
@@ -288,7 +340,7 @@ Lambda execution role policy — only the minimum actions required.
 
 ---
 
-## 7. Output: SNS Email Format
+## 8. Output: SNS Email Format
 
 ```
 Subject: [IAM Auditor] Weekly Report — 2026-03-21
