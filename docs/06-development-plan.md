@@ -895,10 +895,13 @@ _Verify the real Lambda calls real AWS APIs and produces real findings._
     - ✅ Require branches to be up to date before merging
   - ✅ Do not allow bypassing the above settings
   > Note: status check names won't appear in the dropdown until the first pipeline run. Add them after Story 6.3 is complete and the first PR runs the workflow.
-- [ ] Set GitHub repo variable `AWS_ACCOUNT_ID`:
-  - GitHub repo → Settings → Secrets and variables → Actions → Variables tab → New repository variable
-  - Name: `AWS_ACCOUNT_ID`
-  - Value: `548931596025`
+- [ ] Set GitHub repo variables and secrets (Settings → Secrets and variables → Actions):
+  - **Variables tab** → New repository variable:
+    - `AWS_ACCOUNT_ID` = `548931596025`
+    - `GH_ORG` = `mvhungrydev`
+  - **Secrets tab** → New repository secret:
+    - `ALERT_EMAIL` = your email address
+  > Full reference in `docs/05-cicd-pipeline-spec.md §5`
 
 ---
 

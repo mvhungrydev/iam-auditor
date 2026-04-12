@@ -282,7 +282,7 @@ No long-lived AWS credentials stored in GitHub Secrets. Instead:
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:YOUR_GITHUB_USERNAME/iam-auditor:ref:refs/heads/dev"
+          "token.actions.githubusercontent.com:sub": "repo:YOUR_GITHUB_USERNAME/iam-auditor:*"
         }
       }
     }
@@ -291,38 +291,52 @@ No long-lived AWS credentials stored in GitHub Secrets. Instead:
 ```
 
 ### IAM Role Permissions (CI/CD role)
-Minimum permissions for the GitHub Actions role, grouped by purpose:
+
+The CI/CD role uses broad permissions to support Terraform's control-plane operations. Many AWS APIs (e.g. `ec2:DescribeVpcs`, `iam:CreateRole`) do not support resource-level scoping and require `Resource = "*"`. The security boundary is the OIDC trust condition — only your specific GitHub repo can assume this role.
 
 **ECR — Docker image push**
-- `ecr:GetAuthorizationToken`
-- `ecr:BatchCheckLayerAvailability`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload`
-- `ecr:PutImage`, `ecr:BatchGetImage`, `ecr:DescribeRepositories`
+- `ecr:GetAuthorizationToken` — authenticate Docker to ECR registry
+- `ecr:BatchCheckLayerAvailability`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`, `ecr:CompleteLayerUpload`, `ecr:PutImage`, `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`
 
 **Lambda — update function after image push**
-- `lambda:UpdateFunctionCode`
-- `lambda:UpdateFunctionConfiguration`
+- `lambda:UpdateFunctionCode`, `lambda:UpdateFunctionConfiguration`
 - `lambda:GetFunction`, `lambda:GetFunctionConfiguration`
 
 **Terraform provisioning — manage all project resources**
-- `ec2:*` scoped to VPC, subnets, security groups, route tables, endpoints
-- `iam:PassRole` (to assign Lambda execution role)
-- `dynamodb:*` scoped to `iam-audit-findings` table
-- `sns:*` scoped to `iam-auditor-alerts` topic
-- `ssm:PutParameter`, `ssm:GetParameter`, `ssm:DeleteParameter` scoped to `/iam-auditor/*`
-- `logs:*` scoped to `/aws/lambda/iam-auditor` log group
-- `events:*` scoped to EventBridge rule `iam-auditor-*`
+- `ec2:*`, `iam:*`, `lambda:*`, `dynamodb:*`, `sns:*`, `ssm:*`, `logs:*`, `events:*`, `ecr:*`, `access-analyzer:*` on `Resource = "*"`
+- Broad permissions required — Terraform cannot be scoped below service-level for control-plane operations
 
 **Terraform remote state — read/write state file and acquire lock**
-- `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` on `arn:aws:s3:::iam-auditor-tf-state-<account_id>/*`
-- `s3:ListBucket` on `arn:aws:s3:::iam-auditor-tf-state-<account_id>`
+- `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket` scoped to `arn:aws:s3:::iam-auditor-tf-state-<account_id>` and its objects
 
 > **Why state permissions are required:** `terraform init` downloads the current state from S3 before computing a plan. `terraform apply` writes a `.tflock` file to S3 before modifying resources, writes the updated state file after apply, then deletes the lock file. All locking is handled via S3 (`use_lockfile = true`) — no DynamoDB table is needed. Without these S3 permissions the pipeline fails at `terraform init` with an `AccessDenied` error.
 
-All permissions are managed via Terraform in `infra/modules/iam/cicd_role.tf`.
+All permissions are managed via Terraform in `infra/modules/iam/main.tf`.
 
 ---
 
-## 5. Branch Protection Rules
+## 5. GitHub Repository Configuration
+
+Configure these in GitHub repo → Settings → Secrets and variables → Actions before the pipeline can run.
+
+### Variables (non-sensitive, visible in UI)
+
+| Name | Value | Used By | How to set |
+|------|-------|---------|------------|
+| `AWS_ACCOUNT_ID` | `548931596025` | OIDC role ARN in `configure-aws-credentials` step | Variables tab → New repository variable |
+| `GH_ORG` | `mvhungrydev` | `TF_VAR_github_org` → Terraform IAM OIDC trust policy | Variables tab → New repository variable |
+
+### Secrets (sensitive, masked in logs)
+
+| Name | Value | Used By | How to set |
+|------|-------|---------|------------|
+| `ALERT_EMAIL` | your email address | `TF_VAR_alert_email` → SNS subscription in Terraform | Secrets tab → New repository secret |
+
+> **Why `TF_VAR_*` prefix?** Terraform automatically reads environment variables prefixed with `TF_VAR_` as input variable values. Setting `TF_VAR_alert_email` in the pipeline environment is equivalent to passing `-var="alert_email=..."` on the command line — no hardcoded values in the workflow file.
+
+---
+
+## 6. Branch Protection Rules
 
 Configure in GitHub repo → Settings → Branches → Add rule → Branch name pattern: `dev`
 
