@@ -27,8 +27,3 @@ output "sns_topic_arn" {
   value       = module.sns.topic_arn
   description = "SNS alert topic ARN"
 }
-
-output "vpc_id" {
-  value       = module.vpc.vpc_id
-  description = "VPC ID"
-}
