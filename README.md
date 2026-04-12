@@ -325,6 +325,70 @@ To remove demo resources: set `create_demo_data = false` and run `terraform appl
 
 ---
 
+## Sample Output
+
+### SNS Email — Weekly Report
+
+```
+Subject: [IAM Auditor] Weekly Report — 2026-04-12
+
+IAM Auditor run 0ca5133e-c96b-466d-a4af-c47c18910c0c complete.
+Timestamp: 2026-04-12 05:28:24 UTC
+
+FINDINGS BY SEVERITY
+--------------------
+CRITICAL : 1
+HIGH     : 4
+MEDIUM   : 5
+TOTAL    : 10
+
+--- CRITICAL ---
+[R01] arn:aws:iam::548931596025:role/github-actions-iam-auditor
+      sts:AssumeRoleWithWebIdentity
+
+--- HIGH ---
+[R03] arn:aws:iam::548931596025:user/demo-no-mfa-user
+      User 'demo-no-mfa-user' has a console password but no MFA device registered.
+[R09] arn:aws:iam::548931596025:role/demo-wildcard-inline-role
+      Role 'demo-wildcard-inline-role' inline policy 'WildcardS3Policy' grants wildcard action(s): s3:*
+[R10] arn:aws:iam::548931596025:role/demo-wildcard-managed-role
+      Role 'demo-wildcard-managed-role' has customer-managed policy 'demo-wildcard-iam-policy' attached,
+      which grants wildcard action(s): iam:*
+
+Full findings in DynamoDB: iam-audit-findings
+Query by run_id: 0ca5133e-c96b-466d-a4af-c47c18910c0c
+```
+
+> **Note on R01:** Access Analyzer flags the GitHub Actions OIDC role as an external access finding because the trust policy grants access to an identity outside the AWS account (GitHub's OIDC provider). This is expected behavior — Access Analyzer findings always require human review to distinguish intentional federation from unintended exposure.
+
+### DynamoDB — Single Finding Record
+
+```json
+{
+  "run_id":       "0ca5133e-c96b-466d-a4af-c47c18910c0c",
+  "finding_id":   "a3f812bc-9d4e-4c1a-b2f7-e8d3c5a91b20",
+  "rule_id":      "R09",
+  "severity":     "HIGH",
+  "data_source":  "policy_scanner",
+  "resource_arn": "arn:aws:iam::548931596025:role/demo-wildcard-inline-role",
+  "detail":       "Role 'demo-wildcard-inline-role' inline policy 'WildcardS3Policy' grants wildcard action(s): s3:*",
+  "created_at":   "2026-04-12T05:28:24+00:00",
+  "expires_at":   1747018104
+}
+```
+
+Query all findings for a run:
+
+```bash
+aws dynamodb query \
+  --table-name iam-audit-findings \
+  --key-condition-expression "run_id = :rid" \
+  --expression-attribute-values '{":rid": {"S": "0ca5133e-c96b-466d-a4af-c47c18910c0c"}}' \
+  --region us-east-1
+```
+
+---
+
 ## Project Documentation
 
 | Document | Description |
