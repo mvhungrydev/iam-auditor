@@ -908,12 +908,12 @@ _The OIDC identity provider and CI/CD role were created by `terraform apply` in 
 
 **Tasks:**
 
-- [ ] Verify the OIDC provider exists:
+- [x] Verify the OIDC provider exists:
   ```bash
   aws iam list-open-id-connect-providers
   ```
   Expected: entry for `token.actions.githubusercontent.com`
-- [ ] Verify the CI/CD role trust policy matches your repo and `dev` branch:
+- [x] Verify the CI/CD role trust policy matches your repo and `dev` branch:
   ```bash
   aws iam get-role --role-name github-actions-iam-auditor \
     --query 'Role.AssumeRolePolicyDocument'

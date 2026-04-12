@@ -1,0 +1,134 @@
+name: IAM Auditor CI/CD
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  id-token: write    # required for OIDC
+  contents: read
+  pull-requests: write  # for terraform plan PR comment
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: iam-auditor-lambda
+
+jobs:
+  security-scan:
+    name: Security Scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gitleaks needs full history
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run bandit
+        run: |
+          pip install bandit
+          bandit -r src/lambda/ -ll -ii
+
+      - name: Run checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: infra/
+          framework: terraform
+          soft_fail: false
+
+      - name: Build image for trivy scan
+        run: docker build -t iam-auditor-scan src/lambda/
+
+      - name: Run trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: iam-auditor-scan
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: security-scan
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-actions-iam-auditor
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        # Reads S3 backend from infra/envs/dev/backend.tf automatically.
+        # Downloads current state from S3 using OIDC role credentials.
+        # Prerequisite: S3 bucket must already exist (bootstrapped in Story 5.0). No DynamoDB needed.
+        run: cd infra/envs/dev && terraform init
+
+      - name: Terraform Plan
+        run: |
+          cd infra/envs/dev
+          terraform plan -no-color 2>&1 | tee plan.txt
+
+      - name: Post plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const plan = require('fs').readFileSync('infra/envs/dev/plan.txt', 'utf8')
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '### Terraform Plan\n```\n' + plan.slice(0, 65000) + '\n```'
+            })
+
+  deploy:
+    name: Build, Push, Deploy
+    runs-on: ubuntu-latest
+    needs: security-scan
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-actions-iam-auditor
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, push to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPO:${{ github.sha }} src/lambda/
+          docker tag $ECR_REGISTRY/$ECR_REPO:${{ github.sha }} $ECR_REGISTRY/$ECR_REPO:latest
+          docker push $ECR_REGISTRY/$ECR_REPO:${{ github.sha }}
+          docker push $ECR_REGISTRY/$ECR_REPO:latest
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        # Reads S3 backend from infra/envs/dev/backend.tf automatically.
+        # Downloads current state from S3, acquires S3 lock file before apply.
+        run: cd infra/envs/dev && terraform init
+
+      - name: Terraform Apply
+        run: |
+          cd infra/envs/dev
+          terraform apply -auto-approve -var="ecr_image_tag=${{ github.sha }}"
