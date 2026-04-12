@@ -58,11 +58,6 @@ This is a portfolio project demonstrating AWS DevOps and security engineering sk
 │  │  │  SSM Parameter Store (runtime config)    │          │   │
 │  │  └──────────────────────────────────────────┘          │   │
 │  └────────────────────────────────────────────────────────┘   │
-│                                                               │
-│  ┌────────────────────────────────────────────────────────┐   │
-│  │  VPC (reserved for future use — Lambda not attached)  │   │
-│  │  Private Subnet + Gateway Endpoints: S3 + DynamoDB    │   │
-│  └────────────────────────────────────────────────────────┘   │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -95,7 +90,7 @@ Sensitive services for wildcard policy detection: `s3`, `iam`, `ec2`, `lambda`.
 |-------|-----------|
 | Runtime | Python 3.12, AWS Lambda (container image) |
 | Container | Docker, Amazon ECR |
-| Infrastructure | Terraform >= 1.6, AWS VPC, EventBridge, DynamoDB, SNS, SSM |
+| Infrastructure | Terraform >= 1.6, EventBridge, DynamoDB, SNS, SSM |
 | Testing | pytest, moto (AWS mocking), pytest-cov |
 | Security scanning | checkov (IaC), bandit (Python), Trivy (container) |
 | Local AWS | LocalStack, tflocal, awslocal |
@@ -373,7 +368,6 @@ This project is designed to run entirely within the AWS Free Tier:
 | EventBridge | 14M events/month — always free |
 | CloudWatch Logs | 5 GB/month free |
 | ECR | 500 MB free (first 12 months) |
-| VPC + Gateway Endpoints | Always free |
 
 ---
 

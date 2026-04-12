@@ -46,11 +46,6 @@
 │  │  │  SSM Parameter Store (runtime config)    │          │   │
 │  │  └──────────────────────────────────────────┘          │   │
 │  └────────────────────────────────────────────────────────┘   │
-│                                                               │
-│  ┌────────────────────────────────────────────────────────┐   │
-│  │  VPC (reserved for future use — Lambda not attached)  │   │
-│  │  Private Subnet + Gateway Endpoints: S3 + DynamoDB    │   │
-│  └────────────────────────────────────────────────────────┘   │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -81,7 +76,6 @@ Step 5:  Lambda applies severity rules to raw data:
          - MEDIUM: access key unused 90+ days, role unused 90+ days
               │
 Step 6:  Lambda writes each finding to DynamoDB
-         (via public DynamoDB API — Lambda is not VPC-attached)
               │
 Step 7:  Lambda builds summary email (finding counts by severity)
          and publishes to SNS topic → subscriber receives email
@@ -104,8 +98,6 @@ Step 8:  Lambda logs execution summary to CloudWatch Logs
 | DynamoDB              | Persistent findings store        | 25GB always free          |
 | SNS                   | Email delivery of weekly report  | 1M publishes always free  |
 | SSM Parameter Store   | Runtime config and secrets       | Standard tier always free |
-| VPC + Private Subnet  | Reserved for future use (Lambda not VPC-attached) | Always free  |
-| Gateway VPC Endpoints | Private access to DynamoDB + S3  | Always free               |
 | CloudWatch Logs       | Lambda execution logs            | 5GB/mo free               |
 
 ---
@@ -168,27 +160,7 @@ No third-party libraries needed — all logic uses the AWS SDK (boto3) which is 
 
 ---
 
-## 5. VPC Layout
-
-```
-VPC: 10.0.0.0/16
-│
-├── Public Subnet: 10.0.1.0/24  (AZ: us-east-1a)
-│   └── (reserved for future use — no resources deployed here for this project)
-│
-└── Private Subnet: 10.0.2.0/24  (AZ: us-east-1a)
-    └── (reserved for future use — Lambda is not VPC-attached)
-
-Gateway VPC Endpoints (attached to private subnet route table):
-├── com.amazonaws.us-east-1.s3        → free, routes S3 traffic privately
-└── com.amazonaws.us-east-1.dynamodb  → free, routes DynamoDB traffic privately
-```
-
-**Note on Lambda VPC placement:** Lambda is not placed in the VPC. It calls only public AWS APIs (SSM, IAM, DynamoDB, SNS, Access Analyzer). Placing Lambda in a VPC would require VPC Interface Endpoints for each of these services (~$18/month) with no security benefit — the IAM execution role is the security boundary. The VPC and subnets remain provisioned for potential future use.
-
----
-
-## 6. IAM Permissions (Least Privilege)
+## 5. IAM Permissions (Least Privilege)
 
 Lambda execution role policy — only the minimum actions required.
 
@@ -278,7 +250,7 @@ Lambda execution role policy — only the minimum actions required.
 
 ---
 
-## 7. Detection Rules
+## 6. Detection Rules
 
 | Rule ID | Data Source | Condition | Severity | Remediation |
 | ------- | ------------------- | -------------------------------------------------------| R01 | IAM Access Analyzer | Any active external access finding | CRITICAL | Remove the external principal from the resource policy |
@@ -316,7 +288,7 @@ Lambda execution role policy — only the minimum actions required.
 
 ---
 
-## 8. Output: SNS Email Format
+## 7. Output: SNS Email Format
 
 ```
 Subject: [IAM Auditor] Weekly Report — 2026-03-21

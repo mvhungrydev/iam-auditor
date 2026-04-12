@@ -2,11 +2,6 @@
 # This environment is a placeholder and is not deployed for this portfolio project.
 # No changes to modules are required to promote from dev to prod.
 
-module "vpc" {
-  source       = "../../modules/vpc"
-  project_name = var.project_name
-}
-
 module "ecr" {
   source       = "../../modules/ecr"
   project_name = var.project_name
