@@ -929,10 +929,10 @@ _The OIDC identity provider and CI/CD role were created by `terraform apply` in 
 
 **Tasks:**
 
-- [ ] Create `.github/workflows/deploy.yml` per the full YAML in `docs/05-cicd-pipeline-spec.md §6`
-- [ ] Jobs: `security-scan` → `terraform-plan` (PR only) → `deploy` (push to `dev` only)
-- [ ] Verify gitleaks, bandit, checkov, trivy stages match the spec
-- [ ] Verify OIDC credential step uses `role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-actions-iam-auditor`
+- [x] Create `.github/workflows/deploy.yml` per the full YAML in `docs/05-cicd-pipeline-spec.md §6`
+- [x] Jobs: `security-scan` → `terraform-plan` (PR only) → `deploy` (push to `dev` only)
+- [x] Verify gitleaks, bandit, checkov, trivy stages match the spec
+- [x] Verify OIDC credential step uses `role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-actions-iam-auditor`
 
 ---
 
@@ -940,13 +940,14 @@ _The OIDC identity provider and CI/CD role were created by `terraform apply` in 
 
 **Tasks:**
 
-- [ ] Create a feature branch, make a small change, open a PR to `dev`
-- [ ] Verify all 4 security scans pass in GitHub Actions
-- [ ] Verify `terraform plan` output is posted as a PR comment
-- [ ] Merge the PR, verify the deploy job runs: Docker build → ECR push → `terraform apply`
-- [ ] Verify Lambda is updated to the new image (check `image_uri` in Lambda console)
+- [x] Create a feature branch, make a small change, open a PR to `dev`
+- [x] Verify all 4 security scans pass in GitHub Actions
+- [x] Verify `terraform plan` output is posted as a PR comment
+- [x] Merge the PR, verify the deploy job runs: Docker build → ECR push → `terraform apply`
+- [x] Verify Lambda is updated to the new image (check `image_uri` in Lambda console)
 
-**Done when:** Full pipeline runs green on a real PR merge.
+**Done when:** Full pipeline runs green on a real PR merge. ✅
+> Lambda updated to Git SHA `fcdece935b21e452bfe1e70649706708d2836a83` confirming full pipeline ran end to end.
 
 ---
 

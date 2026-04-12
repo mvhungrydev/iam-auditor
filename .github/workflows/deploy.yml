@@ -70,6 +70,11 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Clear stale Terraform lock
+        run: |
+          aws s3 rm s3://iam-auditor-tf-state-548931596025/dev/terraform.tfstate.tflock \
+            || true
+
       - name: Terraform Init
         # Reads S3 backend from infra/envs/dev/backend.tf automatically.
         # Downloads current state from S3 using OIDC role credentials.
@@ -125,6 +130,11 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+
+      - name: Clear stale Terraform lock
+        run: |
+          aws s3 rm s3://iam-auditor-tf-state-548931596025/dev/terraform.tfstate.tflock \
+            || true
 
       - name: Terraform Init
         # Reads S3 backend from infra/envs/dev/backend.tf automatically.
